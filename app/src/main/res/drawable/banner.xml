@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+
+    <!-- Background -->
+    <path
+        android:fillColor="#0B0B0B"
+        android:pathData="M0,0 L320,0 L320,180 L0,180 Z" />
+
+    <!-- Photo frame (outer white border) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,28 L212,28 L212,152 L30,152 Z" />
+
+    <!-- Photo interior (night sky) -->
+    <path
+        android:fillColor="#1F2937"
+        android:pathData="M36,34 L206,34 L206,146 L36,146 Z" />
+
+    <!-- Sun -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M164,62 m-15,0 a15,15 0 1,1 30,0 a15,15 0 1,1 -30,0 Z" />
+
+    <!-- Back mountain (warm brown) -->
+    <path
+        android:fillColor="#8E6A4A"
+        android:pathData="M36,146 L98,76 L162,146 Z" />
+
+    <!-- Front mountain (orange) -->
+    <path
+        android:fillColor="#FF6600"
+        android:pathData="M36,146 L72,104 L112,130 L152,94 L206,146 Z" />
+
+    <!-- TV bezel (white rectangle) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M228,96 L306,96 L306,140 L228,140 Z" />
+
+    <!-- TV screen (dark) -->
+    <path
+        android:fillColor="#0B0B0B"
+        android:pathData="M232,100 L302,100 L302,136 L232,136 Z" />
+
+    <!-- Mini mountains inside the TV -->
+    <path
+        android:fillColor="#FF6600"
+        android:pathData="M232,136 L250,118 L270,130 L286,112 L302,136 Z" />
+
+    <!-- Mini sun inside the TV -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M284,112 m-5,0 a5,5 0 1,1 10,0 a5,5 0 1,1 -10,0 Z" />
+
+    <!-- TV stand -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M258,140 L278,140 L284,154 L252,154 Z" />
+</vector>

@@ -1,0 +1,27 @@
+# Gradle / build
+.gradle/
+.kotlin/
+build/
+**/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IDEA
+.idea/
+*.iml
+captures/
+
+# VS Code
+.vscode/
+
+# Local SDK path + any other local-only config
+local.properties
+
+# Keystores / signing
+*.jks
+*.keystore
+keystore.properties
+
+# Logs / OS cruft
+*.log
+.DS_Store
+Thumbs.db
