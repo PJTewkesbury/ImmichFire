@@ -13,50 +13,55 @@
     <!-- Photo frame (outer white border) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M30,28 L212,28 L212,152 L30,152 Z" />
+        android:pathData="M18,14 L302,14 L302,166 L18,166 Z" />
 
     <!-- Photo interior (night sky) -->
     <path
         android:fillColor="#1F2937"
-        android:pathData="M36,34 L206,34 L206,146 L36,146 Z" />
+        android:pathData="M28,24 L292,24 L292,156 L28,156 Z" />
 
     <!-- Sun -->
     <path
         android:fillColor="#FFC107"
-        android:pathData="M164,62 m-15,0 a15,15 0 1,1 30,0 a15,15 0 1,1 -30,0 Z" />
+        android:pathData="M108,58 m-16,0 a16,16 0 1,1 32,0 a16,16 0 1,1 -32,0 Z" />
 
     <!-- Back mountain (warm brown) -->
     <path
         android:fillColor="#8E6A4A"
-        android:pathData="M36,146 L98,76 L162,146 Z" />
+        android:pathData="M28,156 L96,78 L180,156 Z" />
 
     <!-- Front mountain (orange) -->
     <path
         android:fillColor="#FF6600"
-        android:pathData="M36,146 L72,104 L112,130 L152,94 L206,146 Z" />
+        android:pathData="M28,156 L72,108 L124,138 L172,96 L240,146 L292,118 L292,156 Z" />
 
-    <!-- TV bezel (white rectangle) -->
+    <!-- TV stand (behind bezel) -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M228,96 L306,96 L306,140 L228,140 Z" />
+        android:pathData="M245,162 L271,162 L277,174 L239,174 Z" />
+
+    <!-- TV shadow/outline for separation -->
+    <path
+        android:fillColor="#0B0B0B"
+        android:pathData="M214,106 L306,106 L306,164 L214,164 Z" />
+
+    <!-- TV bezel (white) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M216,108 L304,108 L304,162 L216,162 Z" />
 
     <!-- TV screen (dark) -->
     <path
-        android:fillColor="#0B0B0B"
-        android:pathData="M232,100 L302,100 L302,136 L232,136 Z" />
+        android:fillColor="#111827"
+        android:pathData="M220,112 L300,112 L300,158 L220,158 Z" />
 
     <!-- Mini mountains inside the TV -->
     <path
         android:fillColor="#FF6600"
-        android:pathData="M232,136 L250,118 L270,130 L286,112 L302,136 Z" />
+        android:pathData="M220,158 L238,138 L258,150 L278,132 L300,158 Z" />
 
     <!-- Mini sun inside the TV -->
     <path
         android:fillColor="#FFC107"
-        android:pathData="M284,112 m-5,0 a5,5 0 1,1 10,0 a5,5 0 1,1 -10,0 Z" />
-
-    <!-- TV stand -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M258,140 L278,140 L284,154 L252,154 Z" />
+        android:pathData="M284,128 m-6,0 a6,6 0 1,1 12,0 a6,6 0 1,1 -12,0 Z" />
 </vector>
