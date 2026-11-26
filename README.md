@@ -12,17 +12,30 @@ Fire TV / Android TV slideshow client for an Immich server, driven entirely by t
 - **Phone-based setup:** TV shows a QR code + pairing code → phone opens a form to enter URL & API key (no hunt-and-peck on the remote)
 - **Immich-styled UI:** cream background, Immich indigo (`#4250AF`) accents, card-based layout that mirrors the Immich web settings — brand-matched launcher banner and mipmap icon
 - **Fresh album list on every launch:** the source picker re-queries Immich on every `ON_RESUME`, and filters out albums with zero assets or a blank name
+- **Newest-first albums:** album list is sorted by `createdAt` descending so the most recently created album is at the top
+- **D-pad zoom & pan:** hold **OK** (~0.5 s) during a slideshow to enter Zoom mode at 1.5×; short-press OK cycles 1.5× → 2× → 3× → exit; D-pad arrows pan the zoomed image; Back exits zoom
 
 ## Remote mapping (Slideshow)
+
+### Normal mode
 
 | Button        | Action                     |
 |---------------|----------------------------|
 | D-pad Left    | Previous image             |
 | D-pad Right   | Next image                 |
 | D-pad Center  | Play / pause auto-advance  |
+| D-pad Center (long-press ≥ 0.5 s) | Enter Zoom mode (1.5×, slideshow pauses) |
 | D-pad Up      | Toggle info overlay        |
 | D-pad Down    | Toggle controls bar        |
 | Back          | Return to source picker    |
+
+### Zoom mode
+
+| Button        | Action                     |
+|---------------|----------------------------|
+| D-pad arrows  | Pan the image (clamped to viewport edges) |
+| D-pad Center  | Cycle zoom: 1.5× → 2× → 3× → exit |
+| Back          | Exit Zoom mode (returns to 1×, slideshow stays paused) |
 
 ## First-time setup
 

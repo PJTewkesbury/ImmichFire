@@ -9,6 +9,7 @@ data class AlbumSummary(
     @SerialName("albumName") val name: String,
     @SerialName("assetCount") val assetCount: Int = 0,
     @SerialName("albumThumbnailAssetId") val thumbnailAssetId: String? = null,
+    @SerialName("createdAt") val createdAt: String? = null,
 )
 
 @Serializable

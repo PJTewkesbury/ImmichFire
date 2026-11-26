@@ -25,6 +25,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -35,14 +37,17 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -107,18 +112,103 @@ fun SlideshowScreen(
         }
     }
 
+    // Zoom / pan state. zoomMode==false => normal slideshow. On long-press OK we enter zoom
+    // mode at 1.5x, pause playback, D-pad pans, short-press OK cycles 1.5 → 2 → 3 → off (1x).
+    var zoomMode by remember { mutableStateOf(false) }
+    var zoomLevel by remember { mutableFloatStateOf(1f) }
+    var panX by remember { mutableFloatStateOf(0f) }
+    var panY by remember { mutableFloatStateOf(0f) }
+    var viewportSize by remember { mutableStateOf(IntSize.Zero) }
+    var centerDownAt by remember { mutableLongStateOf(0L) }
+    var longPressFired by remember { mutableStateOf(false) }
+
+    fun clampPan() {
+        val maxX = viewportSize.width * (zoomLevel - 1f) / 2f
+        val maxY = viewportSize.height * (zoomLevel - 1f) / 2f
+        panX = panX.coerceIn(-maxX, maxX)
+        panY = panY.coerceIn(-maxY, maxY)
+    }
+
+    fun exitZoom() {
+        zoomMode = false; zoomLevel = 1f; panX = 0f; panY = 0f
+    }
+
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .onSizeChanged { viewportSize = it; clampPan() }
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { e ->
+                // D-pad Center: long-press to enter Zoom, short-press for play/pause or cycle zoom.
+                if (e.key == Key.DirectionCenter || e.key == Key.Enter) {
+                    when (e.type) {
+                        KeyEventType.KeyDown -> {
+                            if (e.nativeKeyEvent.repeatCount == 0) {
+                                centerDownAt = System.currentTimeMillis()
+                                longPressFired = false
+                            } else if (!longPressFired &&
+                                System.currentTimeMillis() - centerDownAt >= 500L
+                            ) {
+                                longPressFired = true
+                                if (!zoomMode) {
+                                    zoomMode = true
+                                    zoomLevel = 1.5f
+                                    panX = 0f; panY = 0f
+                                    if (state.playing) vm.togglePlay()
+                                }
+                            }
+                            return@onKeyEvent true
+                        }
+                        KeyEventType.KeyUp -> {
+                            if (!longPressFired) {
+                                if (zoomMode) {
+                                    zoomLevel = when (zoomLevel) {
+                                        1.5f -> 2f
+                                        2f -> 3f
+                                        else -> { exitZoom(); 1f }
+                                    }
+                                    clampPan()
+                                } else {
+                                    vm.togglePlay()
+                                }
+                            }
+                            centerDownAt = 0L
+                            longPressFired = false
+                            return@onKeyEvent true
+                        }
+                        else -> return@onKeyEvent false
+                    }
+                }
+
+                // In Zoom mode, D-pad arrows pan; Back exits zoom; next/prev disabled.
+                if (zoomMode) {
+                    val step = 80f
+                    if (e.type == KeyEventType.KeyDown) {
+                        when (e.key) {
+                            Key.DirectionLeft  -> { panX += step; clampPan(); return@onKeyEvent true }
+                            Key.DirectionRight -> { panX -= step; clampPan(); return@onKeyEvent true }
+                            Key.DirectionUp    -> { panY += step; clampPan(); return@onKeyEvent true }
+                            Key.DirectionDown  -> { panY -= step; clampPan(); return@onKeyEvent true }
+                        }
+                    }
+                    if (e.type == KeyEventType.KeyUp) {
+                        when (e.key) {
+                            Key.DirectionLeft, Key.DirectionRight,
+                            Key.DirectionUp, Key.DirectionDown -> return@onKeyEvent true
+                            Key.Back, Key.Escape -> { exitZoom(); return@onKeyEvent true }
+                        }
+                    }
+                    return@onKeyEvent false
+                }
+
+                // Normal slideshow controls (unchanged).
                 if (e.type != KeyEventType.KeyUp) return@onKeyEvent false
                 when (e.key) {
                     Key.DirectionRight, Key.MediaNext -> { vm.next(settings.loop); true }
                     Key.DirectionLeft, Key.MediaPrevious -> { vm.prev(settings.loop); true }
-                    Key.DirectionCenter, Key.Enter, Key.Spacebar,
+                    Key.Spacebar,
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { vm.togglePlay(); true }
                     Key.DirectionUp -> { vm.toggleInfo(); true }
                     Key.DirectionDown -> { showControls = !showControls; true }
@@ -141,13 +231,22 @@ fun SlideshowScreen(
                 ) { i ->
                     val a = state.assets.getOrNull(i) ?: return@AnimatedContent
                     val u = ImmichClient.thumbnailUrl(settings.serverUrl, a.id, size = "preview")
+                    // Only apply the zoom/pan transform to the currently displayed image.
+                    val applyZoom = i == state.index
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(u)
                             .httpHeaders(NetworkHeaders.Builder().set("x-api-key", settings.apiKey).build())
                             .build(),
                         contentDescription = a.originalFileName,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = if (applyZoom) zoomLevel else 1f,
+                                scaleY = if (applyZoom) zoomLevel else 1f,
+                                translationX = if (applyZoom) panX else 0f,
+                                translationY = if (applyZoom) panY else 0f,
+                            ),
                         contentScale = when (settings.fitMode) {
                             FitMode.Fit -> ContentScale.Fit
                             FitMode.Fill -> ContentScale.Crop
@@ -179,6 +278,29 @@ fun SlideshowScreen(
                         Modifier.align(Alignment.TopEnd).padding(16.dp)
                             .background(Color(0xCC000000)).padding(horizontal = 12.dp, vertical = 6.dp),
                     ) { Text("Paused", color = Color.White, fontSize = 14.sp) }
+                }
+
+                if (zoomMode) {
+                    Column(
+                        Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 16.dp)
+                            .background(Color(0xCC000000))
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            "Zoom ${"%.1f".format(zoomLevel)}×",
+                            color = Color.White,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "D-pad to pan   ·   OK to cycle zoom   ·   Back to exit",
+                            color = Color(0xFFCCCCCC),
+                            fontSize = 13.sp,
+                        )
+                    }
                 }
 
                 if (showControls) {

@@ -90,6 +90,7 @@ fun SourcePickerScreen(
                 val api = ImmichClient.create(settings.serverUrl, settings.apiKey)
                 albums = api.listAlbums()
                     .filter { it.assetCount > 0 && it.name.isNotBlank() }
+                    .sortedByDescending { it.createdAt ?: "" }
                 folders = runCatching { api.listFolderPaths() }.getOrDefault(emptyList())
             }.onFailure { error = it.message }
         }
