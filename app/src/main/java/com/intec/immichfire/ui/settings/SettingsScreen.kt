@@ -1,6 +1,7 @@
 package com.intec.immichfire.ui.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -22,6 +24,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -38,6 +41,10 @@ import com.intec.immichfire.data.FitMode
 import com.intec.immichfire.data.ImmichSettings
 import com.intec.immichfire.data.SettingsRepository
 import com.intec.immichfire.data.Transition
+import com.intec.immichfire.ui.theme.ImmichChip
+import com.intec.immichfire.ui.theme.ImmichColors
+import com.intec.immichfire.ui.theme.ImmichSectionCard
+import com.intec.immichfire.ui.theme.ImmichToggle
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -54,8 +61,8 @@ fun SettingsScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color(0xFF0B0B0B))
-            .padding(48.dp)
+            .background(ImmichColors.Background)
+            .padding(horizontal = 56.dp, vertical = 40.dp)
             .onKeyEvent {
                 if (it.type == KeyEventType.KeyUp && (it.key == Key.Back || it.key == Key.Escape)) {
                     onBack(); true
@@ -66,93 +73,150 @@ fun SettingsScreen(
             modifier = Modifier.verticalScroll(scrollState),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            Text(
-                "Settings",
-                color = Color.White,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.focusable(),
-            )
-            Column(
-                modifier = Modifier.focusable(),
-            ) {
-                Text("Server", color = Color(0xFFAAAAAA), fontSize = 14.sp)
-                Text(settings.serverUrl.ifBlank { "(not set)" }, color = Color.White, fontSize = 18.sp)
-            }
-            Column(
-                modifier = Modifier.focusable(),
-            ) {
-                Text("API key", color = Color(0xFFAAAAAA), fontSize = 14.sp)
-                Text(if (settings.apiKey.isBlank()) "(not set)" else "•".repeat(12), color = Color.White, fontSize = 18.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Settings",
+                        color = ImmichColors.OnBackground,
+                        fontSize = 30.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "Manage the app features",
+                        color = ImmichColors.OnSurfaceSecondary,
+                        fontSize = 14.sp,
+                    )
+                }
+                SecondaryButton("Back", onClick = onBack)
             }
 
-            SettingRow("Slideshow speed") {
-                listOf(3_000L, 5_000L, 10_000L, 30_000L, 60_000L, 300_000L).forEach { ms ->
-                    val label = if (ms >= 60_000) "${ms / 60_000}m" else "${ms / 1000}s"
-                    Chip(label, settings.slideshowIntervalMs == ms) {
-                        scope.launch { repo.update { it.copy(slideshowIntervalMs = ms) } }
+            ImmichSectionCard(
+                title = "Server",
+                subtitle = "The Immich instance this device is paired with.",
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LabelValue("URL", settings.serverUrl.ifBlank { "(not set)" })
+                    LabelValue(
+                        "API key",
+                        if (settings.apiKey.isBlank()) "(not set)" else "•".repeat(12),
+                    )
+                }
+            }
+
+            ImmichSectionCard(
+                title = "Slideshow speed",
+                subtitle = "How long each photo stays on screen.",
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(3_000L, 5_000L, 10_000L, 30_000L, 60_000L, 300_000L).forEach { ms ->
+                        val label = if (ms >= 60_000) "${ms / 60_000}m" else "${ms / 1000}s"
+                        ImmichChip(label, settings.slideshowIntervalMs == ms) {
+                            scope.launch { repo.update { it.copy(slideshowIntervalMs = ms) } }
+                        }
                     }
                 }
             }
-            SettingRow("Transition") {
-                Transition.entries.forEach { t ->
-                    Chip(t.name, settings.transition == t) {
-                        scope.launch { repo.update { it.copy(transition = t) } }
+
+            ImmichSectionCard(
+                title = "Transition",
+                subtitle = "Effect applied when moving between photos.",
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Transition.entries.forEach { t ->
+                        ImmichChip(t.name, settings.transition == t) {
+                            scope.launch { repo.update { it.copy(transition = t) } }
+                        }
                     }
                 }
             }
-            SettingRow("Fit") {
-                FitMode.entries.forEach { f ->
-                    Chip(f.name, settings.fitMode == f) {
-                        scope.launch { repo.update { it.copy(fitMode = f) } }
+
+            ImmichSectionCard(
+                title = "Fit",
+                subtitle = "How each photo is scaled to the screen.",
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FitMode.entries.forEach { f ->
+                        ImmichChip(f.name, settings.fitMode == f) {
+                            scope.launch { repo.update { it.copy(fitMode = f) } }
+                        }
                     }
                 }
             }
-            SettingRow("Shuffle") {
-                Chip(if (settings.shuffle) "On" else "Off", true) {
-                    scope.launch { repo.update { it.copy(shuffle = !it.shuffle) } }
+
+            ImmichSectionCard(
+                title = "Playback",
+                subtitle = "Randomise order and loop at the end of a source.",
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    ToggleRow(
+                        label = "Shuffle",
+                        description = "Play photos in a random order",
+                        on = settings.shuffle,
+                        onToggle = { scope.launch { repo.update { it.copy(shuffle = !it.shuffle) } } },
+                    )
+                    ToggleRow(
+                        label = "Loop",
+                        description = "Restart from the beginning when the end is reached",
+                        on = settings.loop,
+                        onToggle = { scope.launch { repo.update { it.copy(loop = !it.loop) } } },
+                    )
                 }
             }
-            SettingRow("Loop") {
-                Chip(if (settings.loop) "On" else "Off", true) {
-                    scope.launch { repo.update { it.copy(loop = !it.loop) } }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                SecondaryButton("Reconfigure server (URL + API key)") {
+                    scope.launch {
+                        repo.saveServer("", "")
+                        onReconfigureServer()
+                    }
                 }
             }
-            Spacer(Modifier.width(24.dp))
-            Chip("Reconfigure server (URL + API key)", false) {
-                scope.launch {
-                    repo.saveServer("", "")
-                    onReconfigureServer()
-                }
-            }
-            Chip("Back", false, onClick = onBack)
+            Spacer(Modifier.width(1.dp))
         }
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SettingRow(label: String, content: @Composable () -> Unit) {
+private fun LabelValue(label: String, value: String) {
     Column {
-        Text(label, color = Color(0xFFAAAAAA), fontSize = 14.sp)
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            content()
-        }
+        Text(label, color = ImmichColors.OnSurfaceSecondary, fontSize = 13.sp)
+        Text(value, color = ImmichColors.OnSurface, fontSize = 17.sp, fontWeight = FontWeight.Medium)
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun ToggleRow(
+    label: String,
+    description: String,
+    on: Boolean,
+    onToggle: () -> Unit,
+) {
+    Row(
+        Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(label, color = ImmichColors.OnSurface, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+            Text(description, color = ImmichColors.OnSurfaceSecondary, fontSize = 13.sp)
+        }
+        ImmichToggle(on, onToggle)
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SecondaryButton(label: String, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(
         Modifier
-            .background(
-                when {
-                    focused -> Color(0xFFFF6600)
-                    selected -> Color(0xFF444444)
-                    else -> Color(0xFF1E1E1E)
-                }
+            .clip(RoundedCornerShape(22.dp))
+            .background(if (focused) ImmichColors.Primary else ImmichColors.Surface)
+            .border(
+                1.dp,
+                if (focused) ImmichColors.PrimaryFocus else ImmichColors.PrimaryBorder,
+                RoundedCornerShape(22.dp),
             )
             .onFocusChanged { focused = it.isFocused }
             .focusable()
@@ -161,7 +225,14 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
                     onClick(); true
                 } else false
             }
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 18.dp, vertical = 10.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(label, color = Color.White, fontSize = 14.sp) }
+    ) {
+        Text(
+            label,
+            color = if (focused) Color.White else ImmichColors.Primary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
 }

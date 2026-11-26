@@ -3,6 +3,7 @@ package com.intec.immichfire.ui.setup
 import android.util.Log
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,8 @@ import com.intec.immichfire.data.SettingsRepository
 import com.intec.immichfire.network.ImmichClient
 import com.intec.immichfire.setup.ConfigServer
 import com.intec.immichfire.setup.ConfigSubmission
+import com.intec.immichfire.ui.theme.ImmichColors
+import com.intec.immichfire.ui.theme.ImmichLogo
 import com.intec.immichfire.util.NetworkUtils
 import com.intec.immichfire.util.QrCode
 import kotlinx.coroutines.Dispatchers
@@ -91,34 +94,88 @@ fun SetupScreen(
     val qr = remember(url) { QrCode.encode(url) }
     val code = server?.pairingCode ?: "------"
 
-    Box(Modifier.fillMaxSize().background(Color(0xFF0B0B0B))) {
-        Row(
-            Modifier.fillMaxSize().padding(48.dp),
-            horizontalArrangement = Arrangement.spacedBy(48.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Image(
-                    bitmap = qr,
-                    contentDescription = null,
-                    modifier = Modifier.size(360.dp).clip(RoundedCornerShape(16.dp)).background(Color.White).padding(12.dp),
-                )
-                Spacer(Modifier.height(16.dp))
-                Text(url, color = Color.White, fontSize = 20.sp)
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("Set up ImmichFire", color = Color.White, fontSize = 36.sp, fontWeight = FontWeight.Bold)
-                Text(
-                    "On your phone or laptop, open the URL shown — or scan the QR code. " +
-                        "You'll be asked for a pairing code, your Immich URL, and an API key.",
-                    color = Color(0xFFCCCCCC), fontSize = 18.sp,
-                )
-                Spacer(Modifier.height(16.dp))
-                Text("Pairing code", color = Color(0xFF888888), fontSize = 14.sp)
-                Text(code, color = Color(0xFFFF6600), fontSize = 64.sp, fontWeight = FontWeight.Bold)
-                lastMessage?.let {
-                    Spacer(Modifier.height(12.dp))
-                    Text(it, color = Color(0xFFAAAAAA), fontSize = 16.sp)
+    Box(Modifier.fillMaxSize().background(ImmichColors.Background)) {
+        Column(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {
+            ImmichLogo()
+            Spacer(Modifier.height(32.dp))
+            Row(
+                Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(48.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                // QR card
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(ImmichColors.Surface)
+                            .border(1.dp, ImmichColors.PrimaryBorder, RoundedCornerShape(16.dp))
+                            .padding(16.dp),
+                    ) {
+                        Image(
+                            bitmap = qr,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(320.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color.White),
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Text(url, color = ImmichColors.OnSurface, fontSize = 18.sp, fontWeight = FontWeight.Medium)
+                }
+
+                // Instructions card
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(ImmichColors.Surface)
+                        .border(1.dp, ImmichColors.PrimaryBorder, RoundedCornerShape(14.dp))
+                        .padding(28.dp),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Text(
+                            "Set up ImmichFire",
+                            color = ImmichColors.Primary,
+                            fontSize = 30.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            "On your phone or laptop, open the URL shown — or scan the QR code. " +
+                                "You'll be asked for a pairing code, your Immich URL, and an API key.",
+                            color = ImmichColors.OnSurfaceSecondary,
+                            fontSize = 17.sp,
+                        )
+                        Spacer(Modifier.height(8.dp))
+
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(ImmichColors.PrimarySubtle)
+                                .border(1.dp, ImmichColors.PrimaryBorder, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 24.dp, vertical = 18.dp),
+                        ) {
+                            Column {
+                                Text(
+                                    "Pairing code",
+                                    color = ImmichColors.Primary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Text(
+                                    code,
+                                    color = ImmichColors.Primary,
+                                    fontSize = 56.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
+
+                        lastMessage?.let {
+                            Text(it, color = ImmichColors.OnSurfaceSecondary, fontSize = 15.sp)
+                        }
+                    }
                 }
             }
         }

@@ -22,6 +22,8 @@ import com.intec.immichfire.ui.settings.SettingsScreen
 import com.intec.immichfire.ui.setup.SetupScreen
 import com.intec.immichfire.ui.slideshow.SlideshowScreen
 import com.intec.immichfire.ui.sources.SourcePickerScreen
+import com.intec.immichfire.ui.theme.ImmichColors
+import com.intec.immichfire.ui.theme.ImmichFireTheme
 
 object Routes {
     const val Setup = "setup"
@@ -39,11 +41,12 @@ fun ImmichFireApp() {
     var initial by remember { mutableStateOf<ImmichSettings?>(null) }
     LaunchedEffect(Unit) { initial = repo.settings.first() }
 
-    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-        val resolved = initial ?: return@Box
-        val nav = rememberNavController()
-        val startRoute = if (resolved.isConfigured) Routes.Sources else Routes.Setup
-        NavHost(navController = nav, startDestination = startRoute) {
+    ImmichFireTheme {
+        Box(modifier = Modifier.fillMaxSize().background(ImmichColors.Background)) {
+            val resolved = initial ?: return@Box
+            val nav = rememberNavController()
+            val startRoute = if (resolved.isConfigured) Routes.Sources else Routes.Setup
+            NavHost(navController = nav, startDestination = startRoute) {
             composable(Routes.Setup) {
                 SetupScreen(
                     repo = repo,
@@ -77,6 +80,7 @@ fun ImmichFireApp() {
                     param = param,
                     onExit = { nav.popBackStack() },
                 )
+            }
             }
         }
     }
