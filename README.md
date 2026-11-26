@@ -115,10 +115,15 @@ app/src/main/java/com/intec/immichfire/
   util/QrCode.kt               -- ZXing QR renderer
 ```
 
+## Advanced slideshow behaviour
+
+- **Image prefetch:** the next 3 images are enqueued into Coil's memory/disk cache the moment the current index advances, so network latency doesn't slip through into a blank frame.
+- **Ken Burns:** when the transition is set to *KenBurns*, each slide gets its own `Animatable`-driven `graphicsLayer` transform — a slow zoom from 1.08× to 1.25× with a slight pan whose direction varies per slide index (NW → SE, NE → SW, etc.). The 900 ms crossfade on top keeps the motion continuous across slide changes.
+- **Fill with blurred backdrop:** when the fit mode is *FillBlurBackdrop* (and the device is Android 12 / API 31+), the slideshow stacks a `ContentScale.Crop` copy of the image behind the foreground, with a 40 dp blur and a 1.1× scale, so the letterbox is a tinted out-of-focus wash instead of black. On older devices the mode silently falls back to *Fit*.
+- **Paged Most Recent:** the "Most recent" source streams `api/search/metadata` page-by-page (500 per page, up to 20 pages = 10 000 images). Each page is appended into state as soon as it arrives, so the slideshow starts on page 1 while later pages continue to fill in.
+- **LAN discovery on the phone setup form:** the phone setup page has a **Scan LAN** button that asks the Fire TV to probe the local /24 subnet on port 2283 (configurable via `?ports=`) for `/api/server/ping` responses. Any found servers appear as tap-to-fill buttons.
+
 ## Known todos
 
-- Image prefetch (enqueue next 2–3 images in Coil) for smoother transitions
-- Ken Burns actual pan+zoom animation (currently a long crossfade stand-in)
-- FillBlurBackdrop rendering (currently falls back to Fit)
-- Paging for Most Recent beyond the first 500
-- Immich mDNS / LAN discovery on the phone setup form
+- Additional ports in the LAN scan (currently only 2283 by default)
+- True Immich mDNS discovery (`_immich._tcp.local.`) alongside the subnet probe

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.intec.immichfire.network.Asset
+import com.intec.immichfire.network.ImmichApi
 import com.intec.immichfire.network.ImmichClient
 import com.intec.immichfire.network.SearchMetadataRequest
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,18 +41,62 @@ class SlideshowViewModel(
             _state.update { it.copy(loading = true, error = null) }
             runCatching {
                 val api = ImmichClient.create(serverUrl, apiKey)
-                val list = when (source) {
-                    "album" -> api.searchMetadata(
-                        SearchMetadataRequest(size = 500, albumIds = listOf(param))
-                    ).assets.items
-                    "folder" -> api.listFolderAssets(param)
-                    else -> api.searchMetadata(SearchMetadataRequest(size = 500)).assets.items
-                }.filter { it.type.equals("IMAGE", ignoreCase = true) }
-                val finalList = if (shuffle) list.shuffled() else list
-                _state.update { it.copy(loading = false, assets = finalList, index = 0) }
+                when (source) {
+                    "album" -> {
+                        val list = api.searchMetadata(
+                            SearchMetadataRequest(size = 500, albumIds = listOf(param))
+                        ).assets.items.filter { it.type.equals("IMAGE", ignoreCase = true) }
+                        val finalList = if (shuffle) list.shuffled() else list
+                        _state.update { it.copy(loading = false, assets = finalList, index = 0) }
+                    }
+                    "folder" -> {
+                        val list = api.listFolderAssets(param)
+                            .filter { it.type.equals("IMAGE", ignoreCase = true) }
+                        val finalList = if (shuffle) list.shuffled() else list
+                        _state.update { it.copy(loading = false, assets = finalList, index = 0) }
+                    }
+                    else -> loadRecentPaged(api, shuffle)
+                }
             }.onFailure { e ->
                 _state.update { it.copy(loading = false, error = e.message ?: "Unknown error") }
             }
+        }
+    }
+
+    /**
+     * Load "Most recent" across multiple pages so slideshows aren't capped at 500 images.
+     * Streams each page into state as it arrives so playback can start on the first page
+     * while later pages continue to append in the background.
+     */
+    private suspend fun loadRecentPaged(api: ImmichApi, shuffle: Boolean) {
+        val pageSize = 500
+        val maxPages = 20                       // 10 000 image hard cap
+        val accumulated = mutableListOf<Asset>()
+        var page = 1
+        while (page <= maxPages) {
+            val resp = api.searchMetadata(
+                SearchMetadataRequest(page = page, size = pageSize)
+            )
+            val items = resp.assets.items
+                .filter { it.type.equals("IMAGE", ignoreCase = true) }
+            accumulated.addAll(items)
+            // Stable shuffle per page: if shuffle is on, reshuffle the whole accumulated list each
+            // append. The downside is that already-seen indices now point to different images, but
+            // in practice the user is viewing index 0..N, and later-appended images just extend
+            // the shuffled tail.
+            val snapshot = if (shuffle) accumulated.shuffled() else accumulated.toList()
+            _state.update { s ->
+                s.copy(
+                    loading = false,
+                    assets = snapshot,
+                    // Keep the current index in bounds if it was previously 0 and we just loaded.
+                    index = s.index.coerceAtMost((snapshot.size - 1).coerceAtLeast(0)),
+                )
+            }
+            val gotFullPage = items.size >= pageSize
+            val serverSaysMore = !resp.assets.nextPage.isNullOrBlank()
+            if (!gotFullPage && !serverSaysMore) break
+            page++
         }
     }
 

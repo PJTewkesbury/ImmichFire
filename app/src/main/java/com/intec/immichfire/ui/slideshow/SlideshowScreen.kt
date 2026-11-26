@@ -1,8 +1,11 @@
 package com.intec.immichfire.ui.slideshow
 
+import android.os.Build
 import android.view.WindowManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -33,6 +36,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -53,6 +57,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
@@ -98,6 +103,25 @@ fun SlideshowScreen(
         if (state.playing && state.assets.isNotEmpty()) {
             delay(settings.slideshowIntervalMs)
             vm.next(settings.loop)
+        }
+    }
+
+    // Prefetch the next 3 images into Coil's memory/disk cache so the next
+    // transition doesn't start with a blank frame while the network loads.
+    LaunchedEffect(state.index, state.assets.size, settings.serverUrl, settings.apiKey) {
+        if (state.assets.isEmpty()) return@LaunchedEffect
+        val loader = SingletonImageLoader.get(context)
+        val headers = NetworkHeaders.Builder().set("x-api-key", settings.apiKey).build()
+        for (offset in 1..3) {
+            val next = state.index + offset
+            val a = state.assets.getOrNull(next) ?: break
+            val u = ImmichClient.thumbnailUrl(settings.serverUrl, a.id, size = "preview")
+            loader.enqueue(
+                ImageRequest.Builder(context)
+                    .data(u)
+                    .httpHeaders(headers)
+                    .build()
+            )
         }
     }
 
@@ -233,28 +257,79 @@ fun SlideshowScreen(
                 ) { i ->
                     val a = state.assets.getOrNull(i) ?: return@AnimatedContent
                     val u = ImmichClient.thumbnailUrl(settings.serverUrl, a.id, size = "preview")
-                    // Only apply the zoom/pan transform to the currently displayed image.
-                    val applyZoom = i == state.index
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(u)
-                            .httpHeaders(NetworkHeaders.Builder().set("x-api-key", settings.apiKey).build())
-                            .build(),
-                        contentDescription = a.originalFileName,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer(
-                                scaleX = if (applyZoom) zoomLevel else 1f,
-                                scaleY = if (applyZoom) zoomLevel else 1f,
-                                translationX = if (applyZoom) panX else 0f,
-                                translationY = if (applyZoom) panY else 0f,
-                            ),
-                        contentScale = when (settings.fitMode) {
-                            FitMode.Fit -> ContentScale.Fit
-                            FitMode.Fill -> ContentScale.Crop
-                            FitMode.FillBlurBackdrop -> ContentScale.Fit
-                        },
-                    )
+                    val req = ImageRequest.Builder(context)
+                        .data(u)
+                        .httpHeaders(NetworkHeaders.Builder().set("x-api-key", settings.apiKey).build())
+                        .build()
+
+                    // Per-slide Ken Burns animation — each AnimatedContent cell gets its own
+                    // Animatables keyed on `i`, so the outgoing slide keeps animating until it
+                    // fades out while the incoming slide starts its own pan/zoom from scratch.
+                    val kbScale = remember(i) { Animatable(1.08f) }
+                    val kbTx = remember(i) { Animatable(0f) }
+                    val kbTy = remember(i) { Animatable(0f) }
+                    LaunchedEffect(i, settings.transition, settings.slideshowIntervalMs) {
+                        if (settings.transition == Transition.KenBurns) {
+                            // Target over 2x the slide duration, so motion is still visible
+                            // while the next slide is crossfading in.
+                            val durMs = (settings.slideshowIntervalMs * 2).toInt().coerceAtLeast(4000)
+                            val (txTargetFrac, tyTargetFrac) = when (i % 4) {
+                                0 -> 0.08f to 0.06f      // pan toward bottom-right
+                                1 -> -0.08f to 0.06f     // pan toward bottom-left
+                                2 -> 0.08f to -0.06f     // pan toward top-right
+                                else -> -0.08f to -0.06f // pan toward top-left
+                            }
+                            launch { kbScale.animateTo(1.25f, tween(durMs, easing = LinearEasing)) }
+                            launch { kbTx.animateTo(txTargetFrac, tween(durMs, easing = LinearEasing)) }
+                            launch { kbTy.animateTo(tyTargetFrac, tween(durMs, easing = LinearEasing)) }
+                        }
+                    }
+
+                    val isCurrent = i == state.index
+                    val kenBurnsOn = settings.transition == Transition.KenBurns && !zoomMode
+                    val baseScale = if (kenBurnsOn) kbScale.value else 1f
+                    val baseTx = if (kenBurnsOn) kbTx.value * viewportSize.width else 0f
+                    val baseTy = if (kenBurnsOn) kbTy.value * viewportSize.height else 0f
+                    val applyZoom = isCurrent && zoomMode
+                    val finalScale = if (applyZoom) zoomLevel else baseScale
+                    val finalTx = if (applyZoom) panX else baseTx
+                    val finalTy = if (applyZoom) panY else baseTy
+
+                    val useBlurBackdrop = settings.fitMode == FitMode.FillBlurBackdrop &&
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+                    Box(Modifier.fillMaxSize()) {
+                        if (useBlurBackdrop) {
+                            // Backdrop: same image cropped to fill and blurred so the letterbox
+                            // gets a tinted, out-of-focus wash of the picture instead of black.
+                            AsyncImage(
+                                model = req,
+                                contentDescription = null,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .blur(40.dp)
+                                    .graphicsLayer(scaleX = 1.1f, scaleY = 1.1f),
+                                contentScale = ContentScale.Crop,
+                            )
+                        }
+                        AsyncImage(
+                            model = req,
+                            contentDescription = a.originalFileName,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .graphicsLayer(
+                                    scaleX = finalScale,
+                                    scaleY = finalScale,
+                                    translationX = finalTx,
+                                    translationY = finalTy,
+                                ),
+                            contentScale = when (settings.fitMode) {
+                                FitMode.Fit -> ContentScale.Fit
+                                FitMode.Fill -> ContentScale.Crop
+                                FitMode.FillBlurBackdrop -> ContentScale.Fit
+                            },
+                        )
+                    }
                 }
 
                 if (state.showInfo) {
@@ -332,7 +407,7 @@ private fun transitionFor(t: Transition): ContentTransform = when (t) {
     Transition.Crossfade -> fadeIn(tween(600)) togetherWith fadeOut(tween(600))
     Transition.Slide -> (slideInHorizontally(tween(500)) { it } + fadeIn(tween(500))) togetherWith
         (slideOutHorizontally(tween(500)) { -it } + fadeOut(tween(500)))
-    Transition.KenBurns -> fadeIn(tween(1200)) togetherWith fadeOut(tween(1200))
+    Transition.KenBurns -> fadeIn(tween(900)) togetherWith fadeOut(tween(900))
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)

@@ -2,6 +2,7 @@ package com.intec.immichfire.setup
 
 import android.util.Log
 import com.intec.immichfire.network.ImmichClient
+import com.intec.immichfire.util.NetworkUtils
 import fi.iki.elonen.NanoHTTPD
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -9,7 +10,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
+import java.net.HttpURLConnection
+import java.net.URL
 import java.net.URLDecoder
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.random.Random
 
 data class ConfigSubmission(
@@ -33,7 +38,85 @@ class ConfigServer(
             "/submit" -> handleSubmit(session)
             "/test" -> handleTest(session)
             "/diag" -> handleDiag(session)
+            "/discover" -> handleDiscover(session)
             else -> notFound()
+        }
+    }
+
+    /**
+     * Scan the local /24 subnet for Immich servers by probing /api/server/ping on each
+     * candidate host. Returns JSON like `[{"url":"http://1.2.3.4:2283","name":"Immich @ 1.2.3.4"}]`.
+     * Default port is 2283 (Immich's default) but `?ports=2283,80,8080` lets the caller widen.
+     */
+    private fun handleDiscover(session: IHTTPSession): Response {
+        val myIp = NetworkUtils.localIpv4()
+            ?: return newFixedLengthResponse(
+                Response.Status.OK, "application/json",
+                """{"error":"no local ipv4","results":[]}"""
+            )
+        val parts = myIp.split(".")
+        if (parts.size != 4) return newFixedLengthResponse(
+            Response.Status.OK, "application/json",
+            """{"error":"bad local ipv4","results":[]}"""
+        )
+        val prefix = "${parts[0]}.${parts[1]}.${parts[2]}"
+        val myLast = parts[3].toIntOrNull() ?: -1
+
+        val ports = (session.parameters["ports"]?.firstOrNull()
+            ?: "2283")
+            .split(",")
+            .mapNotNull { it.trim().toIntOrNull() }
+            .ifEmpty { listOf(2283) }
+
+        Log.i("ImmichFire", "LAN discover on $prefix.x (me=$myLast) ports=$ports")
+
+        val pool = Executors.newFixedThreadPool(64)
+        val results = java.util.concurrent.CopyOnWriteArrayList<String>()
+        try {
+            val futures = (1..254)
+                .filter { it != myLast }
+                .flatMap { last -> ports.map { port -> last to port } }
+                .map { (last, port) ->
+                    pool.submit {
+                        val ip = "$prefix.$last"
+                        if (probeImmich(ip, port)) {
+                            results.add("""{"url":"http://$ip:$port","name":"Immich @ $ip:$port"}""")
+                        }
+                    }
+                }
+            val deadline = System.currentTimeMillis() + 10_000L
+            for (f in futures) {
+                val remaining = (deadline - System.currentTimeMillis()).coerceAtLeast(0L)
+                runCatching { f.get(remaining, TimeUnit.MILLISECONDS) }
+            }
+        } finally {
+            pool.shutdownNow()
+        }
+
+        val body = """{"results":[${results.joinToString(",")}]}"""
+        return newFixedLengthResponse(Response.Status.OK, "application/json", body)
+    }
+
+    private fun probeImmich(ip: String, port: Int): Boolean {
+        val target = "http://$ip:$port/api/server/ping"
+        return try {
+            val u = URL(target)
+            val c = u.openConnection() as HttpURLConnection
+            c.connectTimeout = 350
+            c.readTimeout = 700
+            c.instanceFollowRedirects = false
+            c.requestMethod = "GET"
+            c.setRequestProperty("Accept", "application/json")
+            val code = c.responseCode
+            val ok = if (code == 200) {
+                val body = runCatching { c.inputStream.bufferedReader().use { it.readText() } }
+                    .getOrDefault("")
+                body.contains("\"res\"") && body.contains("pong", ignoreCase = true)
+            } else false
+            c.disconnect()
+            ok
+        } catch (_: Throwable) {
+            false
         }
     }
 
@@ -116,7 +199,12 @@ class ConfigServer(
           .secondary{background:#333}
           .row{display:flex;gap:8px}
           .row button{flex:1}
+          .inlineRow{display:flex;gap:8px;align-items:stretch;margin-top:6px}
+          .inlineRow input{flex:1}
+          .inlineRow button{margin:0;width:auto;padding:0 14px;font-size:14px}
           #status{margin-top:12px;font-size:14px;min-height:20px}
+          .found{margin-top:8px;display:flex;flex-direction:column;gap:6px}
+          .found button{margin:0;width:100%;padding:10px;font-size:14px;background:#263;color:#cfc;text-align:left}
         </style></head><body>
           <h1>ImmichFire Setup</h1>
           <p>Enter your Immich details below. The pairing code is shown on the TV.</p>
@@ -124,7 +212,11 @@ class ConfigServer(
             <label>Pairing code (6 digits)</label>
             <input name="code" inputmode="numeric" pattern="\d{6}" required>
             <label>Immich Server URL</label>
-            <input name="url" type="url" placeholder="http://192.168.0.100:2283" required>
+            <div class="inlineRow">
+              <input name="url" id="url" type="url" placeholder="http://192.168.0.100:2283" required>
+              <button type="button" class="secondary" onclick="scan()">Scan LAN</button>
+            </div>
+            <div id="found" class="found"></div>
             <label>API Key</label>
             <input name="apiKey" required>
             <div id="status"></div>
@@ -143,6 +235,28 @@ class ConfigServer(
               const t=await r.text();
               s.textContent=t==='OK'?'Connected OK ✓':('✗ '+t);
               s.style.color=t==='OK'?'#6c6':'#f66';
+            }
+            async function scan(){
+              const s=document.getElementById('status');
+              const found=document.getElementById('found');
+              found.innerHTML='';
+              s.textContent='Scanning local network…';
+              s.style.color='#ccc';
+              try{
+                const r=await fetch('/discover');
+                const j=await r.json();
+                const items=j.results||[];
+                if(items.length===0){ s.textContent='No Immich servers found on LAN.'; s.style.color='#f66'; return; }
+                s.textContent='Found '+items.length+' server(s) — tap one to use it:';
+                s.style.color='#6c6';
+                for(const it of items){
+                  const b=document.createElement('button');
+                  b.type='button';
+                  b.textContent=it.url+'  —  '+it.name;
+                  b.onclick=()=>{ document.getElementById('url').value=it.url; s.textContent='Using '+it.url; };
+                  found.appendChild(b);
+                }
+              } catch(e) { s.textContent='Scan failed: '+e; s.style.color='#f66'; }
             }
           </script>
         </body></html>
