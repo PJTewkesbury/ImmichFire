@@ -68,6 +68,7 @@ dependencies {
 
     implementation(libs.nanohttpd)
     implementation(libs.zxing.core)
+    implementation(libs.jmdns)
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 }

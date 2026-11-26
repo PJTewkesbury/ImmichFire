@@ -1,5 +1,7 @@
 package com.intec.immichfire.setup
 
+import android.content.Context
+import android.net.wifi.WifiManager
 import android.util.Log
 import com.intec.immichfire.network.ImmichClient
 import com.intec.immichfire.util.NetworkUtils
@@ -11,10 +13,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.net.HttpURLConnection
+import java.net.Inet4Address
+import java.net.InetAddress
 import java.net.URL
 import java.net.URLDecoder
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import javax.jmdns.JmDNS
+import javax.jmdns.ServiceInfo
 import kotlin.random.Random
 
 data class ConfigSubmission(
@@ -25,6 +31,7 @@ data class ConfigSubmission(
 )
 
 class ConfigServer(
+    private val appContext: Context,
     port: Int = 8080,
     private val onSubmit: suspend (serverUrl: String, apiKey: String) -> ConfigSubmission,
 ) : NanoHTTPD(port) {
@@ -44,9 +51,15 @@ class ConfigServer(
     }
 
     /**
-     * Scan the local /24 subnet for Immich servers by probing /api/server/ping on each
-     * candidate host. Returns JSON like `[{"url":"http://1.2.3.4:2283","name":"Immich @ 1.2.3.4"}]`.
-     * Default port is 2283 (Immich's default) but `?ports=2283,80,8080` lets the caller widen.
+     * Discover Immich servers on the LAN via two mechanisms in parallel:
+     *   1. mDNS / Bonjour query for `_immich._tcp.local.` (preferred — requires the Immich
+     *      host to advertise, typically via avahi-publish or `avahi-daemon` + a `.service` file).
+     *   2. Direct /24 subnet probe of `/api/server/ping` on well-known Immich ports.
+     * Results are merged and deduplicated by URL. Each result also carries a `source` field
+     * so the UI can label whether it came from mDNS or the subnet scan.
+     *
+     * JSON shape: `{"results":[{"url":"http://1.2.3.4:2283","name":"...","source":"mdns"}, ...]}`.
+     * Default scan ports are 2283; override with `?ports=2283,80,8080`.
      */
     private fun handleDiscover(session: IHTTPSession): Response {
         val myIp = NetworkUtils.localIpv4()
@@ -59,8 +72,6 @@ class ConfigServer(
             Response.Status.OK, "application/json",
             """{"error":"bad local ipv4","results":[]}"""
         )
-        val prefix = "${parts[0]}.${parts[1]}.${parts[2]}"
-        val myLast = parts[3].toIntOrNull() ?: -1
 
         val ports = (session.parameters["ports"]?.firstOrNull()
             ?: "2283")
@@ -68,10 +79,38 @@ class ConfigServer(
             .mapNotNull { it.trim().toIntOrNull() }
             .ifEmpty { listOf(2283) }
 
-        Log.i("ImmichFire", "LAN discover on $prefix.x (me=$myLast) ports=$ports")
+        Log.i("ImmichFire", "LAN discover start: ip=$myIp ports=$ports")
 
+        // Shared, dedup-by-URL result sink. value = (name, source)
+        val merged = java.util.concurrent.ConcurrentHashMap<String, Pair<String, String>>()
+
+        val mdnsThread = Thread({ discoverMdns(myIp, merged) }, "immichfire-mdns")
+        mdnsThread.isDaemon = true
+        mdnsThread.start()
+
+        discoverSubnet(myIp, parts, ports, merged)
+
+        // Give the mDNS scan the remainder of a ~5 s budget to finish.
+        runCatching { mdnsThread.join(5_000L) }
+        if (mdnsThread.isAlive) mdnsThread.interrupt()
+
+        val body = merged.entries.joinToString(",") { (url, nv) ->
+            val (name, source) = nv
+            """{"url":"${escapeJson(url)}","name":"${escapeJson(name)}","source":"$source"}"""
+        }
+        Log.i("ImmichFire", "LAN discover done: ${merged.size} host(s)")
+        return newFixedLengthResponse(Response.Status.OK, "application/json", """{"results":[$body]}""")
+    }
+
+    private fun discoverSubnet(
+        myIp: String,
+        parts: List<String>,
+        ports: List<Int>,
+        merged: MutableMap<String, Pair<String, String>>,
+    ) {
+        val prefix = "${parts[0]}.${parts[1]}.${parts[2]}"
+        val myLast = parts[3].toIntOrNull() ?: -1
         val pool = Executors.newFixedThreadPool(64)
-        val results = java.util.concurrent.CopyOnWriteArrayList<String>()
         try {
             val futures = (1..254)
                 .filter { it != myLast }
@@ -80,11 +119,13 @@ class ConfigServer(
                     pool.submit {
                         val ip = "$prefix.$last"
                         if (probeImmich(ip, port)) {
-                            results.add("""{"url":"http://$ip:$port","name":"Immich @ $ip:$port"}""")
+                            val url = "http://$ip:$port"
+                            // mDNS source wins if both reported the same host.
+                            merged.putIfAbsent(url, "Immich @ $ip:$port" to "subnet")
                         }
                     }
                 }
-            val deadline = System.currentTimeMillis() + 10_000L
+            val deadline = System.currentTimeMillis() + 4_000L
             for (f in futures) {
                 val remaining = (deadline - System.currentTimeMillis()).coerceAtLeast(0L)
                 runCatching { f.get(remaining, TimeUnit.MILLISECONDS) }
@@ -92,9 +133,60 @@ class ConfigServer(
         } finally {
             pool.shutdownNow()
         }
+    }
 
-        val body = """{"results":[${results.joinToString(",")}]}"""
-        return newFixedLengthResponse(Response.Status.OK, "application/json", body)
+    /**
+     * mDNS probe: ask for `_immich._tcp.local.` directly, and as a fallback also walk any
+     * `_http._tcp.local.` services whose name contains "immich". JmDNS is bound to the
+     * TV's own Wi-Fi/Ethernet address so the OS routes multicast through the right NIC.
+     * A WifiManager MulticastLock is held for the duration of the query, so Wi-Fi power
+     * saving doesn't drop the incoming multicast responses.
+     */
+    private fun discoverMdns(myIp: String, merged: MutableMap<String, Pair<String, String>>) {
+        val wifi = appContext.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+        val lock = wifi?.createMulticastLock("immichfire-mdns")?.apply {
+            setReferenceCounted(false)
+            runCatching { acquire() }
+        }
+        var jmdns: JmDNS? = null
+        try {
+            val localAddr = runCatching { InetAddress.getByName(myIp) as? Inet4Address }.getOrNull()
+            jmdns = if (localAddr != null) JmDNS.create(localAddr, "immichfire") else JmDNS.create()
+
+            val infos = buildList {
+                addAll(runCatching { jmdns!!.list("_immich._tcp.local.", 3_500L).toList() }
+                    .getOrDefault(emptyList()))
+                // Fallback: Immich installs that advertise generic HTTP with "immich" in the name.
+                runCatching { jmdns!!.list("_http._tcp.local.", 2_000L) }.getOrNull()?.forEach {
+                    if (it.name?.contains("immich", ignoreCase = true) == true) add(it)
+                }
+            }
+            for (info in infos) acceptMdnsService(info, merged)
+        } catch (e: Throwable) {
+            Log.w("ImmichFire", "mDNS discovery failed: ${e.javaClass.simpleName}: ${e.message}")
+        } finally {
+            runCatching { jmdns?.close() }
+            runCatching { lock?.release() }
+        }
+    }
+
+    private fun acceptMdnsService(
+        info: ServiceInfo,
+        merged: MutableMap<String, Pair<String, String>>,
+    ) {
+        val host = info.inet4Addresses?.firstOrNull()?.hostAddress ?: return
+        val port = info.port.takeIf { it in 1..65535 } ?: return
+        val scheme = info.getPropertyString("scheme")?.takeIf { it.isNotBlank() } ?: "http"
+        val pathRaw = info.getPropertyString("path").orEmpty().trim()
+        val path = when {
+            pathRaw.isBlank() -> ""
+            pathRaw.startsWith("/") -> pathRaw.trimEnd('/')
+            else -> "/" + pathRaw.trimEnd('/')
+        }
+        val url = "$scheme://$host:$port$path"
+        val displayName = info.name?.takeIf { it.isNotBlank() } ?: "Immich @ $host"
+        // mDNS is authoritative over the subnet probe when both find the same URL — replace it.
+        merged[url] = displayName to "mdns"
     }
 
     private fun probeImmich(ip: String, port: Int): Boolean {
@@ -119,6 +211,9 @@ class ConfigServer(
             false
         }
     }
+
+    private fun escapeJson(s: String): String =
+        s.replace("\\", "\\\\").replace("\"", "\\\"")
 
     private fun handleDiag(session: IHTTPSession): Response {
         val url = session.parameters["url"]?.firstOrNull().orEmpty().trim()
@@ -217,6 +312,7 @@ class ConfigServer(
               <button type="button" class="secondary" onclick="scan()">Scan LAN</button>
             </div>
             <div id="found" class="found"></div>
+            <div style="font-size:12px;color:#888;margin-top:6px">Scan uses mDNS (<code>_immich._tcp.local.</code>) and a /24 subnet probe in parallel.</div>
             <label>API Key</label>
             <input name="apiKey" required>
             <div id="status"></div>
@@ -249,10 +345,15 @@ class ConfigServer(
                 if(items.length===0){ s.textContent='No Immich servers found on LAN.'; s.style.color='#f66'; return; }
                 s.textContent='Found '+items.length+' server(s) — tap one to use it:';
                 s.style.color='#6c6';
+                items.sort((a,b)=>{
+                  if(a.source===b.source) return a.url.localeCompare(b.url);
+                  return a.source==='mdns'?-1:1; // mDNS results first
+                });
                 for(const it of items){
                   const b=document.createElement('button');
                   b.type='button';
-                  b.textContent=it.url+'  —  '+it.name;
+                  const badge=it.source==='mdns'?'[mDNS] ':'[scan] ';
+                  b.textContent=badge+it.url+'  —  '+it.name;
                   b.onclick=()=>{ document.getElementById('url').value=it.url; s.textContent='Using '+it.url; };
                   found.appendChild(b);
                 }

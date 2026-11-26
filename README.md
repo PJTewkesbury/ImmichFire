@@ -121,7 +121,10 @@ app/src/main/java/com/intec/immichfire/
 - **Ken Burns:** when the transition is set to *KenBurns*, each slide gets its own `Animatable`-driven `graphicsLayer` transform — a slow zoom from 1.08× to 1.25× with a slight pan whose direction varies per slide index (NW → SE, NE → SW, etc.). The 900 ms crossfade on top keeps the motion continuous across slide changes.
 - **Fill with blurred backdrop:** when the fit mode is *FillBlurBackdrop* (and the device is Android 12 / API 31+), the slideshow stacks a `ContentScale.Crop` copy of the image behind the foreground, with a 40 dp blur and a 1.1× scale, so the letterbox is a tinted out-of-focus wash instead of black. On older devices the mode silently falls back to *Fit*.
 - **Paged Most Recent:** the "Most recent" source streams `api/search/metadata` page-by-page (500 per page, up to 20 pages = 10 000 images). Each page is appended into state as soon as it arrives, so the slideshow starts on page 1 while later pages continue to fill in.
-- **LAN discovery on the phone setup form:** the phone setup page has a **Scan LAN** button that asks the Fire TV to probe the local /24 subnet on port 2283 (configurable via `?ports=`) for `/api/server/ping` responses. Any found servers appear as tap-to-fill buttons.
+- **LAN discovery on the phone setup form:** the phone setup page has a **Scan LAN** button that asks the Fire TV to look for Immich servers two ways in parallel:
+  1. **mDNS / Bonjour** for `_immich._tcp.local.` (and `_http._tcp.local.` services whose name contains "immich" as a fallback). JmDNS is bound to the TV's own NIC, and a WiFi `MulticastLock` is held while querying so power saving doesn't drop responses. Supports TXT records `scheme` and `path` for custom hosts.
+  2. **/24 subnet probe** of `/api/server/ping` on port 2283 (configurable via `?ports=2283,80,8080`).
+  Results are merged, deduplicated by URL, and shown as tap-to-fill buttons tagged `[mDNS]` or `[scan]`. mDNS matches sort first.
 
 ## Cache & storage footprint
 
@@ -136,7 +139,26 @@ The app is tuned to keep its on-device footprint small — important on a Fire T
 
 In addition, the memory cache is **cleared on dispose** when you leave the slideshow (Back to picker, Settings, app background), so idle RAM goes back to just DataStore + Compose.
 
+## Advertising an Immich server over mDNS
+
+Immich doesn't advertise itself on mDNS out of the box. On a Linux host running `avahi-daemon`, create `/etc/avahi/services/immich.service`:
+
+```xml
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<service-group>
+  <name replace-wildcards="yes">Immich on %h</name>
+  <service>
+    <type>_immich._tcp</type>
+    <port>2283</port>
+    <txt-record>scheme=http</txt-record>
+    <txt-record>path=</txt-record>
+  </service>
+</service-group>
+```
+
+Reload Avahi (`systemctl reload avahi-daemon`) and the TV's **Scan LAN** button will find the server via mDNS on the next scan.
+
 ## Known todos
 
 - Additional ports in the LAN scan (currently only 2283 by default)
-- True Immich mDNS discovery (`_immich._tcp.local.`) alongside the subnet probe
