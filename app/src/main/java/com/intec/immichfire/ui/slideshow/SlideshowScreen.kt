@@ -99,6 +99,15 @@ fun SlideshowScreen(
         onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
+    // When the user leaves the slideshow (Back to picker, Settings, app background), drop the
+    // decoded previews we accumulated from memory. Disk cache survives (so re-entry is quick)
+    // and is itself capped at 64 MB.
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { SingletonImageLoader.get(context).memoryCache?.clear() }
+        }
+    }
+
     LaunchedEffect(state.playing, state.index, settings.slideshowIntervalMs, state.assets.size) {
         if (state.playing && state.assets.isNotEmpty()) {
             delay(settings.slideshowIntervalMs)

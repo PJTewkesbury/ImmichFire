@@ -16,8 +16,18 @@ class ImmichFireApplication : Application(), SingletonImageLoader.Factory {
     override fun newImageLoader(context: PlatformContext): ImageLoader {
         val okHttp = OkHttpClient.Builder().build()
         return ImageLoader.Builder(context)
-            .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.25).build() }
-            .diskCache { DiskCache.Builder().directory(cacheDir.resolve("image_cache").toOkioPath()).maxSizeBytes(512L * 1024 * 1024).build() }
+            // Memory cache: 15% of the app heap is plenty for a slideshow — we only need the
+            // current, previous, and next few decoded previews. The rest comes from disk.
+            .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.15).build() }
+            // Disk cache: cap at 64 MB. Preview thumbnails are ~100–400 KB each, so this still
+            // holds hundreds of images; LRU eviction keeps it from growing. 512 MB was
+            // overkill for a Fire TV Stick with only ~8 GB total internal storage.
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(cacheDir.resolve("image_cache").toOkioPath())
+                    .maxSizeBytes(64L * 1024 * 1024)
+                    .build()
+            }
             .components { add(OkHttpNetworkFetcherFactory(callFactory = { okHttp })) }
             .crossfade(true)
             .build()

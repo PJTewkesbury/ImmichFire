@@ -1,11 +1,9 @@
 package com.intec.immichfire.network
 
-import android.util.Log
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
-import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import java.util.concurrent.TimeUnit
@@ -21,9 +19,9 @@ object ImmichClient {
 
     fun create(baseUrl: String, apiKey: String): ImmichApi {
         val normalizedBase = baseUrl.trimEnd('/') + "/"
-        val logging = HttpLoggingInterceptor { message -> Log.i("ImmichHttp", message) }.apply {
-            level = HttpLoggingInterceptor.Level.HEADERS
-        }
+        // No HTTP logging interceptor: logging every thumbnail request (including the
+        // x-api-key header) spams logcat for no production benefit and leaks the key into
+        // the device's log buffer where other apps/accessibility tools can scrape it.
         val client = OkHttpClient.Builder()
             .protocols(listOf(Protocol.HTTP_1_1))
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -35,7 +33,6 @@ object ImmichClient {
                     .build()
                 chain.proceed(req)
             }
-            .addInterceptor(logging)
             .build()
 
         return Retrofit.Builder()

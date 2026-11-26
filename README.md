@@ -123,6 +123,19 @@ app/src/main/java/com/intec/immichfire/
 - **Paged Most Recent:** the "Most recent" source streams `api/search/metadata` page-by-page (500 per page, up to 20 pages = 10 000 images). Each page is appended into state as soon as it arrives, so the slideshow starts on page 1 while later pages continue to fill in.
 - **LAN discovery on the phone setup form:** the phone setup page has a **Scan LAN** button that asks the Fire TV to probe the local /24 subnet on port 2283 (configurable via `?ports=`) for `/api/server/ping` responses. Any found servers appear as tap-to-fill buttons.
 
+## Cache & storage footprint
+
+The app is tuned to keep its on-device footprint small — important on a Fire TV Stick that only ships with ~8 GB of internal storage.
+
+| What | Where | Bound |
+|---|---|---|
+| Decoded image bitmaps | Coil memory cache | **15 %** of the app's heap (down from the usual 25 %), auto-evicted LRU |
+| Downloaded thumbnails | Coil disk cache (`cacheDir/image_cache`) | **64 MB** hard cap (down from 512 MB), auto-evicted LRU; cleared on uninstall |
+| Settings (URL, API key, prefs) | `DataStore` preferences | A few hundred bytes; `allowBackup=false` so it is never uploaded to Google Drive by Android Auto Backup |
+| HTTP logs | *disabled* | `HttpLoggingInterceptor` removed entirely — the API-key header is never written to logcat |
+
+In addition, the memory cache is **cleared on dispose** when you leave the slideshow (Back to picker, Settings, app background), so idle RAM goes back to just DataStore + Compose.
+
 ## Known todos
 
 - Additional ports in the LAN scan (currently only 2283 by default)
