@@ -21,6 +21,7 @@ class SettingsRepository(private val context: Context) {
         val SHUFFLE = booleanPreferencesKey("shuffle")
         val LOOP = booleanPreferencesKey("loop")
         val FIT = stringPreferencesKey("fit")
+        val SORT_ORDER = stringPreferencesKey("sort_order")
     }
 
     val settings: Flow<ImmichSettings> = context.dataStore.data.map { p ->
@@ -32,6 +33,7 @@ class SettingsRepository(private val context: Context) {
             shuffle = p[Keys.SHUFFLE] ?: false,
             loop = p[Keys.LOOP] ?: true,
             fitMode = runCatching { FitMode.valueOf(p[Keys.FIT] ?: FitMode.Fit.name) }.getOrDefault(FitMode.Fit),
+            sortOrder = runCatching { SortOrder.valueOf(p[Keys.SORT_ORDER] ?: SortOrder.NewestFirst.name) }.getOrDefault(SortOrder.NewestFirst),
         )
     }
 
@@ -52,6 +54,7 @@ class SettingsRepository(private val context: Context) {
                 shuffle = p[Keys.SHUFFLE] ?: false,
                 loop = p[Keys.LOOP] ?: true,
                 fitMode = runCatching { FitMode.valueOf(p[Keys.FIT] ?: FitMode.Fit.name) }.getOrDefault(FitMode.Fit),
+                sortOrder = runCatching { SortOrder.valueOf(p[Keys.SORT_ORDER] ?: SortOrder.NewestFirst.name) }.getOrDefault(SortOrder.NewestFirst),
             )
             val next = block(current)
             p[Keys.SERVER_URL] = next.serverUrl
@@ -61,6 +64,7 @@ class SettingsRepository(private val context: Context) {
             p[Keys.SHUFFLE] = next.shuffle
             p[Keys.LOOP] = next.loop
             p[Keys.FIT] = next.fitMode.name
+            p[Keys.SORT_ORDER] = next.sortOrder.name
         }
     }
 }

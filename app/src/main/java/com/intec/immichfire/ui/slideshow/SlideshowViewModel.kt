@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.intec.immichfire.data.SortOrder
 import com.intec.immichfire.network.Asset
 import com.intec.immichfire.network.ImmichApi
 import com.intec.immichfire.network.ImmichClient
@@ -33,10 +34,12 @@ class SlideshowViewModel(
     val state: StateFlow<SlideshowState> = _state.asStateFlow()
 
     private var loaded = false
+    private var currentSortOrder: SortOrder = SortOrder.NewestFirst
 
-    fun load(serverUrl: String, apiKey: String, shuffle: Boolean) {
+    fun load(serverUrl: String, apiKey: String, shuffle: Boolean, sortOrder: SortOrder) {
         if (loaded || serverUrl.isBlank() || apiKey.isBlank()) return
         loaded = true
+        currentSortOrder = sortOrder
         viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
             runCatching {
@@ -44,18 +47,24 @@ class SlideshowViewModel(
                 when (source) {
                     "album" -> {
                         val list = api.searchMetadata(
-                            SearchMetadataRequest(size = 500, albumIds = listOf(param))
+                            SearchMetadataRequest(
+                                size = 500,
+                                albumIds = listOf(param),
+                                order = sortOrder.toApiOrder(),
+                            )
                         ).assets.items.filter { it.type.equals("IMAGE", ignoreCase = true) }
-                        val finalList = if (shuffle) list.shuffled() else list
+                        val ordered = applyClientSort(list, sortOrder)
+                        val finalList = if (shuffle) ordered.shuffled() else ordered
                         _state.update { it.copy(loading = false, assets = finalList, index = 0) }
                     }
                     "folder" -> {
                         val list = api.listFolderAssets(param)
                             .filter { it.type.equals("IMAGE", ignoreCase = true) }
-                        val finalList = if (shuffle) list.shuffled() else list
+                        val ordered = applyClientSort(list, sortOrder)
+                        val finalList = if (shuffle) ordered.shuffled() else ordered
                         _state.update { it.copy(loading = false, assets = finalList, index = 0) }
                     }
-                    else -> loadRecentPaged(api, shuffle)
+                    else -> loadRecentPaged(api, shuffle, sortOrder)
                 }
             }.onFailure { e ->
                 _state.update { it.copy(loading = false, error = e.message ?: "Unknown error") }
@@ -64,32 +73,51 @@ class SlideshowViewModel(
     }
 
     /**
+     * Resort an already-loaded slideshow when the user flips newest-first vs oldest-first from
+     * the on-screen controls. Keeps playback going without re-fetching from the server.
+     */
+    fun resort(sortOrder: SortOrder) {
+        if (sortOrder == currentSortOrder) return
+        currentSortOrder = sortOrder
+        _state.update { s ->
+            if (s.assets.isEmpty()) return@update s
+            val current = s.assets[s.index]
+            val resorted = applyClientSort(s.assets, sortOrder)
+            val newIndex = resorted.indexOfFirst { it.id == current.id }.coerceAtLeast(0)
+            s.copy(assets = resorted, index = newIndex)
+        }
+    }
+
+    private fun applyClientSort(list: List<Asset>, sortOrder: SortOrder): List<Asset> {
+        val keyed = list.sortedBy { dateKey(it) }
+        return if (sortOrder == SortOrder.NewestFirst) keyed.asReversed() else keyed
+    }
+
+    private fun dateKey(a: Asset): String =
+        a.exifInfo?.dateTimeOriginal ?: a.localDateTime ?: a.fileCreatedAt ?: ""
+
+    /**
      * Load "Most recent" across multiple pages so slideshows aren't capped at 500 images.
      * Streams each page into state as it arrives so playback can start on the first page
      * while later pages continue to append in the background.
      */
-    private suspend fun loadRecentPaged(api: ImmichApi, shuffle: Boolean) {
+    private suspend fun loadRecentPaged(api: ImmichApi, shuffle: Boolean, sortOrder: SortOrder) {
         val pageSize = 500
         val maxPages = 20                       // 10 000 image hard cap
         val accumulated = mutableListOf<Asset>()
         var page = 1
         while (page <= maxPages) {
             val resp = api.searchMetadata(
-                SearchMetadataRequest(page = page, size = pageSize)
+                SearchMetadataRequest(page = page, size = pageSize, order = sortOrder.toApiOrder())
             )
             val items = resp.assets.items
                 .filter { it.type.equals("IMAGE", ignoreCase = true) }
             accumulated.addAll(items)
-            // Stable shuffle per page: if shuffle is on, reshuffle the whole accumulated list each
-            // append. The downside is that already-seen indices now point to different images, but
-            // in practice the user is viewing index 0..N, and later-appended images just extend
-            // the shuffled tail.
             val snapshot = if (shuffle) accumulated.shuffled() else accumulated.toList()
             _state.update { s ->
                 s.copy(
                     loading = false,
                     assets = snapshot,
-                    // Keep the current index in bounds if it was previously 0 and we just loaded.
                     index = s.index.coerceAtMost((snapshot.size - 1).coerceAtLeast(0)),
                 )
             }
@@ -140,4 +168,9 @@ class SlideshowViewModel(
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             SlideshowViewModel(appContext, source, param) as T
     }
+}
+
+private fun SortOrder.toApiOrder(): String = when (this) {
+    SortOrder.NewestFirst -> "desc"
+    SortOrder.OldestFirst -> "asc"
 }

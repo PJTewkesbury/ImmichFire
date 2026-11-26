@@ -51,7 +51,7 @@ fun ImmichLogo(size: Int = 36) {
         )
         Spacer(Modifier.width(10.dp))
         Text(
-            "immich",
+            "Image Fire",
             color = ImmichColors.Primary,
             fontSize = 22.sp,
             fontWeight = FontWeight.SemiBold,

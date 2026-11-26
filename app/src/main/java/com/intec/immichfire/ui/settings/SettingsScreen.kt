@@ -40,6 +40,7 @@ import androidx.tv.material3.Text
 import com.intec.immichfire.data.FitMode
 import com.intec.immichfire.data.ImmichSettings
 import com.intec.immichfire.data.SettingsRepository
+import com.intec.immichfire.data.SortOrder
 import com.intec.immichfire.data.Transition
 import com.intec.immichfire.ui.theme.ImmichChip
 import com.intec.immichfire.ui.theme.ImmichColors
@@ -139,6 +140,20 @@ fun SettingsScreen(
                         ImmichChip(f.name, settings.fitMode == f) {
                             scope.launch { repo.update { it.copy(fitMode = f) } }
                         }
+                    }
+                }
+            }
+
+            ImmichSectionCard(
+                title = "Photo order",
+                subtitle = "Which photo plays first — by date the photo was taken.",
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ImmichChip("Newest first", settings.sortOrder == SortOrder.NewestFirst) {
+                        scope.launch { repo.update { it.copy(sortOrder = SortOrder.NewestFirst) } }
+                    }
+                    ImmichChip("Oldest first", settings.sortOrder == SortOrder.OldestFirst) {
+                        scope.launch { repo.update { it.copy(sortOrder = SortOrder.OldestFirst) } }
                     }
                 }
             }

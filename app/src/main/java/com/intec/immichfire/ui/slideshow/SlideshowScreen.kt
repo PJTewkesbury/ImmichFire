@@ -65,6 +65,7 @@ import coil3.request.ImageRequest
 import com.intec.immichfire.data.FitMode
 import com.intec.immichfire.data.ImmichSettings
 import com.intec.immichfire.data.SettingsRepository
+import com.intec.immichfire.data.SortOrder
 import com.intec.immichfire.data.Transition
 import com.intec.immichfire.network.Asset
 import com.intec.immichfire.network.ImmichClient
@@ -88,8 +89,9 @@ fun SlideshowScreen(
     )
     val state by vm.state.collectAsState()
 
-    LaunchedEffect(settings.serverUrl, settings.apiKey, settings.shuffle) {
-        vm.load(settings.serverUrl, settings.apiKey, settings.shuffle)
+    LaunchedEffect(settings.serverUrl, settings.apiKey, settings.shuffle, settings.sortOrder) {
+        vm.load(settings.serverUrl, settings.apiKey, settings.shuffle, settings.sortOrder)
+        vm.resort(settings.sortOrder)
     }
 
     DisposableEffect(state.playing) {
@@ -135,13 +137,22 @@ fun SlideshowScreen(
     }
 
     val focusRequester = remember { FocusRequester() }
+    val controlsFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focusRequester.requestFocus() } }
 
     var showControls by remember { mutableStateOf(false) }
+    var controlsInteraction by remember { mutableStateOf(0) }
+    LaunchedEffect(showControls, controlsInteraction) {
+        if (showControls) {
+            delay(6_000)
+            showControls = false
+        }
+    }
     LaunchedEffect(showControls) {
         if (showControls) {
-            delay(4_000)
-            showControls = false
+            runCatching { controlsFocusRequester.requestFocus() }
+        } else {
+            runCatching { focusRequester.requestFocus() }
         }
     }
 
@@ -175,6 +186,13 @@ fun SlideshowScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { e ->
+                // While the overlay controls are up, let their chips handle every key.
+                if (showControls && e.key != Key.DirectionUp && e.key != Key.DirectionDown
+                    && e.key != Key.Back && e.key != Key.Escape
+                ) {
+                    return@onKeyEvent false
+                }
+
                 // D-pad Center: long-press to enter Zoom, short-press for play/pause or cycle zoom.
                 if (e.key == Key.DirectionCenter || e.key == Key.Enter) {
                     when (e.type) {
@@ -238,16 +256,24 @@ fun SlideshowScreen(
                     return@onKeyEvent false
                 }
 
-                // Normal slideshow controls (unchanged).
+                // Normal slideshow controls.
                 if (e.type != KeyEventType.KeyUp) return@onKeyEvent false
                 when (e.key) {
-                    Key.DirectionRight, Key.MediaNext -> { vm.next(settings.loop); true }
-                    Key.DirectionLeft, Key.MediaPrevious -> { vm.prev(settings.loop); true }
+                    Key.DirectionRight, Key.MediaNext -> {
+                        if (showControls) false else { vm.next(settings.loop); true }
+                    }
+                    Key.DirectionLeft, Key.MediaPrevious -> {
+                        if (showControls) false else { vm.prev(settings.loop); true }
+                    }
                     Key.Spacebar,
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { vm.togglePlay(); true }
-                    Key.DirectionUp -> { vm.toggleInfo(); true }
+                    Key.DirectionUp -> {
+                        if (showControls) { showControls = false; true } else { vm.toggleInfo(); true }
+                    }
                     Key.DirectionDown -> { showControls = !showControls; true }
-                    Key.Back, Key.Escape -> { onExit(); true }
+                    Key.Back, Key.Escape -> {
+                        if (showControls) { showControls = false; true } else { onExit(); true }
+                    }
                     else -> false
                 }
             },
@@ -392,9 +418,24 @@ fun SlideshowScreen(
                 if (showControls) {
                     Controls(
                         settings = settings,
-                        onChangeInterval = { ms -> uiScope.launch { repo.update { it.copy(slideshowIntervalMs = ms) } } },
-                        onChangeTransition = { t -> uiScope.launch { repo.update { it.copy(transition = t) } } },
-                        onToggleShuffle = { uiScope.launch { repo.update { it.copy(shuffle = !it.shuffle) } } },
+                        firstChipFocusRequester = controlsFocusRequester,
+                        onInteraction = { controlsInteraction++ },
+                        onChangeInterval = { ms ->
+                            controlsInteraction++
+                            uiScope.launch { repo.update { it.copy(slideshowIntervalMs = ms) } }
+                        },
+                        onChangeTransition = { t ->
+                            controlsInteraction++
+                            uiScope.launch { repo.update { it.copy(transition = t) } }
+                        },
+                        onChangeSortOrder = { o ->
+                            controlsInteraction++
+                            uiScope.launch { repo.update { it.copy(sortOrder = o) } }
+                        },
+                        onToggleShuffle = {
+                            controlsInteraction++
+                            uiScope.launch { repo.update { it.copy(shuffle = !it.shuffle) } }
+                        },
                         modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
@@ -423,41 +464,92 @@ private fun transitionFor(t: Transition): ContentTransform = when (t) {
 @Composable
 private fun Controls(
     settings: ImmichSettings,
+    firstChipFocusRequester: FocusRequester,
+    onInteraction: () -> Unit,
     onChangeInterval: (Long) -> Unit,
     onChangeTransition: (Transition) -> Unit,
+    onChangeSortOrder: (SortOrder) -> Unit,
     onToggleShuffle: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    val intervals = listOf(3_000L, 5_000L, 10_000L, 30_000L, 60_000L)
+    Column(
         modifier
             .fillMaxWidth()
             .background(Color(0xCC000000))
             .padding(16.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("Speed:", color = Color(0xFFAAAAAA), fontSize = 14.sp)
-        Spacer(Modifier.width(8.dp))
-        listOf(3_000L, 5_000L, 10_000L, 30_000L, 60_000L).forEach { ms ->
-            Chip("${ms / 1000}s", selected = settings.slideshowIntervalMs == ms, onClick = { onChangeInterval(ms) })
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Speed:", color = Color(0xFFAAAAAA), fontSize = 14.sp)
+            Spacer(Modifier.width(8.dp))
+            intervals.forEachIndexed { i, ms ->
+                Chip(
+                    label = "${ms / 1000}s",
+                    selected = settings.slideshowIntervalMs == ms,
+                    onFocused = onInteraction,
+                    onClick = { onChangeInterval(ms) },
+                    modifier = if (i == 0) Modifier.focusRequester(firstChipFocusRequester) else Modifier,
+                )
+            }
+            Spacer(Modifier.width(24.dp))
+            Text("Transition:", color = Color(0xFFAAAAAA), fontSize = 14.sp)
+            Spacer(Modifier.width(8.dp))
+            Transition.entries.forEach { t ->
+                Chip(
+                    label = t.name,
+                    selected = settings.transition == t,
+                    onFocused = onInteraction,
+                    onClick = { onChangeTransition(t) },
+                )
+            }
         }
-        Spacer(Modifier.width(24.dp))
-        Text("Transition:", color = Color(0xFFAAAAAA), fontSize = 14.sp)
-        Spacer(Modifier.width(8.dp))
-        Transition.entries.forEach { t ->
-            Chip(t.name, selected = settings.transition == t, onClick = { onChangeTransition(t) })
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Order:", color = Color(0xFFAAAAAA), fontSize = 14.sp)
+            Spacer(Modifier.width(8.dp))
+            Chip(
+                label = "Newest first",
+                selected = settings.sortOrder == SortOrder.NewestFirst,
+                onFocused = onInteraction,
+                onClick = { onChangeSortOrder(SortOrder.NewestFirst) },
+            )
+            Chip(
+                label = "Oldest first",
+                selected = settings.sortOrder == SortOrder.OldestFirst,
+                onFocused = onInteraction,
+                onClick = { onChangeSortOrder(SortOrder.OldestFirst) },
+            )
+            Spacer(Modifier.width(24.dp))
+            Chip(
+                label = if (settings.shuffle) "Shuffle: on" else "Shuffle: off",
+                selected = settings.shuffle,
+                onFocused = onInteraction,
+                onClick = onToggleShuffle,
+            )
         }
-        Spacer(Modifier.width(24.dp))
-        Chip(if (settings.shuffle) "Shuffle: on" else "Shuffle: off", selected = settings.shuffle, onClick = onToggleShuffle)
     }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun Chip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onFocused: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     var focused by remember { mutableStateOf(false) }
     Box(
-        Modifier
+        modifier
             .padding(horizontal = 4.dp)
             .background(
                 when {
@@ -466,7 +558,10 @@ private fun Chip(label: String, selected: Boolean, onClick: () -> Unit) {
                     else -> Color(0xFF222222)
                 }
             )
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
             .focusable()
             .onKeyEvent {
                 if (it.type == KeyEventType.KeyUp && (it.key == Key.DirectionCenter || it.key == Key.Enter)) {
