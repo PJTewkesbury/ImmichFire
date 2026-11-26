@@ -113,7 +113,8 @@ fun SlideshowScreen(
     }
 
     // Zoom / pan state. zoomMode==false => normal slideshow. On long-press OK we enter zoom
-    // mode at 1.5x, pause playback, D-pad pans, short-press OK cycles 1.5 → 2 → 3 → off (1x).
+    // mode at 1.5x, pause playback, D-pad pans, short-press OK cycles in 0.5x steps up to 4x,
+    // then exits zoom (back to 1x).
     var zoomMode by remember { mutableStateOf(false) }
     var zoomLevel by remember { mutableFloatStateOf(1f) }
     var panX by remember { mutableFloatStateOf(0f) }
@@ -164,12 +165,13 @@ fun SlideshowScreen(
                         KeyEventType.KeyUp -> {
                             if (!longPressFired) {
                                 if (zoomMode) {
-                                    zoomLevel = when (zoomLevel) {
-                                        1.5f -> 2f
-                                        2f -> 3f
-                                        else -> { exitZoom(); 1f }
+                                    val next = zoomLevel + 0.5f
+                                    if (next > 4f + 0.001f) {
+                                        exitZoom()
+                                    } else {
+                                        zoomLevel = next
+                                        clampPan()
                                     }
-                                    clampPan()
                                 } else {
                                     vm.togglePlay()
                                 }
