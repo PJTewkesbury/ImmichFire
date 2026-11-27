@@ -1,5 +1,6 @@
 package com.intec.immichfire.ui.theme
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -14,12 +15,15 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,18 +36,26 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.intec.immichfire.R
+import kotlinx.coroutines.launch
 
 /** Immich-style word-mark: real 5-petal flower + TV badge mark + "immich" in brand purple. */
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun ImmichLogo(size: Int = 36) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.semantics(mergeDescendants = true) { contentDescription = "Image Fire" },
+    ) {
         Image(
             painter = painterResource(R.drawable.ic_immich_mark),
             contentDescription = null,
@@ -91,7 +103,7 @@ fun ImmichSectionCard(
 }
 
 /** Light pill/button row. Fills width, left label + optional trailing text, focus brings Immich purple. */
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ImmichRowButton(
     label: String,
@@ -100,9 +112,12 @@ fun ImmichRowButton(
     onClick: () -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
+    val bringIntoView = remember { BringIntoViewRequester() }
+    val coScope = rememberCoroutineScope()
     Row(
         modifier
             .fillMaxWidth()
+            .bringIntoViewRequester(bringIntoView)
             .clip(RoundedCornerShape(10.dp))
             .background(if (focused) ImmichColors.Primary else ImmichColors.PrimarySubtle)
             .border(
@@ -110,8 +125,12 @@ fun ImmichRowButton(
                 if (focused) ImmichColors.PrimaryFocus else ImmichColors.PrimaryBorder,
                 RoundedCornerShape(10.dp),
             )
-            .onFocusChanged { focused = it.isFocused }
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) coScope.launch { runCatching { bringIntoView.bringIntoView() } }
+            }
             .focusable()
+            .semantics { role = Role.Button; contentDescription = label }
             .onKeyEvent {
                 if (it.type == KeyEventType.KeyUp && (it.key == Key.DirectionCenter || it.key == Key.Enter)) {
                     onClick(); true
@@ -163,6 +182,7 @@ fun ImmichChip(label: String, selected: Boolean, onClick: () -> Unit) {
             .border(1.dp, borderColor, RoundedCornerShape(20.dp))
             .onFocusChanged { focused = it.isFocused }
             .focusable()
+            .semantics { role = Role.Button; contentDescription = label }
             .onKeyEvent {
                 if (it.type == KeyEventType.KeyUp && (it.key == Key.DirectionCenter || it.key == Key.Enter)) {
                     onClick(); true
@@ -198,6 +218,7 @@ fun ImmichToggle(on: Boolean, onToggle: () -> Unit) {
             )
             .onFocusChanged { focused = it.isFocused }
             .focusable()
+            .semantics { role = Role.Switch; contentDescription = if (on) "Enabled" else "Disabled" }
             .onKeyEvent {
                 if (it.type == KeyEventType.KeyUp && (it.key == Key.DirectionCenter || it.key == Key.Enter)) {
                     onToggle(); true

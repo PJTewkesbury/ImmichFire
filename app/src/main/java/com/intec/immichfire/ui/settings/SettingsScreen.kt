@@ -1,5 +1,6 @@
 package com.intec.immichfire.ui.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -22,9 +23,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -59,6 +63,10 @@ fun SettingsScreen(
     val settings by repo.settings.collectAsState(initial = ImmichSettings())
     val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
+    val backFocus = remember { FocusRequester() }
+
+    BackHandler { onBack() }
+    LaunchedEffect(Unit) { runCatching { backFocus.requestFocus() } }
 
     Box(
         Modifier
@@ -89,7 +97,7 @@ fun SettingsScreen(
                         fontSize = 14.sp,
                     )
                 }
-                SecondaryButton("Back", onClick = onBack)
+                SecondaryButton("Back", onClick = onBack, modifier = Modifier.focusRequester(backFocus))
             }
 
             ImmichSectionCard(
@@ -234,10 +242,10 @@ private fun ToggleRow(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun SecondaryButton(label: String, onClick: () -> Unit) {
+private fun SecondaryButton(label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var focused by remember { mutableStateOf(false) }
     Box(
-        Modifier
+        modifier
             .clip(RoundedCornerShape(22.dp))
             .background(if (focused) ImmichColors.Primary else ImmichColors.Surface)
             .border(

@@ -1,5 +1,7 @@
 package com.intec.immichfire.ui.sources
 
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +29,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -95,6 +99,19 @@ fun SourcePickerScreen(
 
     val focusRecent = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focusRecent.requestFocus() } }
+
+    // Double-tap-back to exit, so a stray Back press doesn't drop out of the app silently.
+    val context = LocalContext.current
+    var lastBackPressAt by remember { mutableStateOf(0L) }
+    BackHandler {
+        val now = System.currentTimeMillis()
+        if (now - lastBackPressAt < 2_000L) {
+            (context as? ComponentActivity)?.finish()
+        } else {
+            lastBackPressAt = now
+            Toast.makeText(context, "Press Back again to exit", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     Box(
         Modifier

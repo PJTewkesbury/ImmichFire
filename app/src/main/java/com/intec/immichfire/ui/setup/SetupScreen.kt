@@ -55,10 +55,39 @@ fun SetupScreen(
     val context = LocalContext.current
     val appContext = remember { context.applicationContext }
     val localIp = remember { NetworkUtils.localIpv4() }
-    val url = remember(localIp) { "http://${localIp ?: "???"}:8080" }
+    val url = remember(localIp) { localIp?.let { "http://$it:8080" } }
     var server by remember { mutableStateOf<ConfigServer?>(null) }
     var done by remember { mutableStateOf(false) }
     var lastMessage by remember { mutableStateOf<String?>(null) }
+
+    // No Wi-Fi / no local IP → the QR URL would be nonsense and the config server has no
+    // interface to bind to. Tell the user instead of showing a broken QR.
+    if (url == null) {
+        Box(Modifier.fillMaxSize().background(ImmichColors.Background)) {
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                ImmichLogo()
+                Spacer(Modifier.height(32.dp))
+                Text(
+                    "Connect to Wi-Fi",
+                    color = ImmichColors.Primary,
+                    fontSize = 30.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    "This device is not on a network. Open your Fire TV Settings → Network, " +
+                        "join your Wi-Fi, then return here.",
+                    color = ImmichColors.OnSurfaceSecondary,
+                    fontSize = 17.sp,
+                )
+            }
+        }
+        return
+    }
 
     LaunchedEffect(Unit) {
         val s = ConfigServer(appContext) { submittedUrl, submittedKey ->
@@ -117,7 +146,7 @@ fun SetupScreen(
                     ) {
                         Image(
                             bitmap = qr,
-                            contentDescription = null,
+                            contentDescription = "Pairing QR code for $url",
                             modifier = Modifier
                                 .size(320.dp)
                                 .clip(RoundedCornerShape(8.dp))

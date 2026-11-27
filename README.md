@@ -26,8 +26,8 @@ Fire TV / Android TV slideshow client for an Immich server, driven entirely by t
 | D-pad Center  | Play / pause auto-advance  |
 | D-pad Center (long-press ≥ 0.5 s) | Enter Zoom mode (1.5×, slideshow pauses) |
 | D-pad Up      | Toggle info overlay        |
-| D-pad Down    | Toggle controls bar        |
-| Back          | Return to source picker    |
+| D-pad Down    | Open controls bar          |
+| Back          | Close controls bar (if open), otherwise return to source picker |
 
 ### Zoom mode
 

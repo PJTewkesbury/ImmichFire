@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.ImmichFire" parent="android:Theme.Material.NoActionBar" />
+    <!--
+      Fullscreen DeviceDefault theme: no status bar, no action bar, fullscreen Window. Fits
+      Fire TV / Android TV where we never want system chrome, and avoids pulling in the
+      leanback support library just for a theme (all TV UI is Compose + androidx.tv.material3).
+    -->
+    <style name="Theme.ImmichFire" parent="android:Theme.DeviceDefault.NoActionBar.Fullscreen" />
 </resources>

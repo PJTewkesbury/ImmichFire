@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -37,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -186,10 +188,14 @@ fun SlideshowScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { e ->
-                // While the overlay controls are up, let their chips handle every key.
-                if (showControls && e.key != Key.DirectionUp && e.key != Key.DirectionDown
-                    && e.key != Key.Back && e.key != Key.Escape
-                ) {
+                // While the overlay controls are up, let the chips (and the focus system,
+                // for Up/Down traversal between the two chip rows) handle every key except
+                // Back/Escape — those dismiss the overlay.
+                if (showControls) {
+                    if (e.type == KeyEventType.KeyUp && (e.key == Key.Back || e.key == Key.Escape)) {
+                        showControls = false
+                        return@onKeyEvent true
+                    }
                     return@onKeyEvent false
                 }
 
@@ -267,13 +273,9 @@ fun SlideshowScreen(
                     }
                     Key.Spacebar,
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { vm.togglePlay(); true }
-                    Key.DirectionUp -> {
-                        if (showControls) { showControls = false; true } else { vm.toggleInfo(); true }
-                    }
-                    Key.DirectionDown -> { showControls = !showControls; true }
-                    Key.Back, Key.Escape -> {
-                        if (showControls) { showControls = false; true } else { onExit(); true }
-                    }
+                    Key.DirectionUp -> { vm.toggleInfo(); true }
+                    Key.DirectionDown -> { showControls = true; true }
+                    Key.Back, Key.Escape -> { onExit(); true }
                     else -> false
                 }
             },
@@ -377,6 +379,7 @@ fun SlideshowScreen(
                         Text(asset.originalFileName ?: asset.id, color = Color.White, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                         asset.fileCreatedAt?.let { Text(it, color = Color(0xFFCCCCCC), fontSize = 14.sp) }
                         Text("${state.index + 1} / ${state.assets.size}", color = Color(0xFFAAAAAA), fontSize = 14.sp)
+                        Text("D-pad Up to hide", color = Color(0xFF888888), fontSize = 12.sp)
                     }
                 }
 
@@ -528,11 +531,11 @@ private fun Controls(
                 onClick = { onChangeSortOrder(SortOrder.OldestFirst) },
             )
             Spacer(Modifier.width(24.dp))
-            Chip(
-                label = if (settings.shuffle) "Shuffle: on" else "Shuffle: off",
-                selected = settings.shuffle,
+            ToggleChip(
+                label = "Shuffle",
+                on = settings.shuffle,
                 onFocused = onInteraction,
-                onClick = onToggleShuffle,
+                onToggle = onToggleShuffle,
             )
         }
     }
@@ -551,6 +554,7 @@ private fun Chip(
     Box(
         modifier
             .padding(horizontal = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(
                 when {
                     focused -> Color(0xFFFF6600)
@@ -570,6 +574,50 @@ private fun Chip(
             }
             .padding(horizontal = 10.dp, vertical = 6.dp),
     ) { Text(label, color = Color.White, fontSize = 13.sp) }
+}
+
+/** Overlay toggle chip: shows a check mark that makes on/off state obvious even next to
+ * exclusive-select chips in the same row. */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ToggleChip(
+    label: String,
+    on: Boolean,
+    onToggle: () -> Unit,
+    onFocused: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Box(
+        modifier
+            .padding(horizontal = 4.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                when {
+                    focused -> Color(0xFFFF6600)
+                    on -> Color(0xFF2E7D32)
+                    else -> Color(0xFF222222)
+                }
+            )
+            .onFocusChanged {
+                focused = it.isFocused
+                if (it.isFocused) onFocused()
+            }
+            .focusable()
+            .onKeyEvent {
+                if (it.type == KeyEventType.KeyUp && (it.key == Key.DirectionCenter || it.key == Key.Enter)) {
+                    onToggle(); true
+                } else false
+            }
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        Text(
+            (if (on) "☑ " else "☐ ") + label,
+            color = Color.White,
+            fontSize = 13.sp,
+            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+        )
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
