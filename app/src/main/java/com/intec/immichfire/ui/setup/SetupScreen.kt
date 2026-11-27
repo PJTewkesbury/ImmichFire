@@ -44,6 +44,7 @@ import com.intec.immichfire.util.NetworkUtils
 import com.intec.immichfire.util.QrCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.concurrent.atomic.AtomicReference
 
 private sealed class LocalIpState {
     data object Resolving : LocalIpState()
@@ -71,7 +72,10 @@ fun SetupScreen(
     }
     val url = (localIpState as? LocalIpState.Ready)
         ?.let { "http://${it.ip}:${Constants.Network.SETUP_SERVER_PORT}" }
-    var server by remember { mutableStateOf<ConfigServer?>(null) }
+    // AtomicReference so the onDispose cleanup can see the server even if the LaunchedEffect
+    // that started it was cancelled before its final `server = s` assignment.
+    val serverRef = remember { AtomicReference<ConfigServer?>() }
+    var serverForUi by remember { mutableStateOf<ConfigServer?>(null) }
     var done by remember { mutableStateOf(false) }
     var lastMessage by remember { mutableStateOf<String?>(null) }
 
@@ -126,23 +130,42 @@ fun SetupScreen(
                 }
             }
         }
+        // Publish the server to the ref BEFORE start(); even if this LaunchedEffect gets
+        // cancelled mid-start by a quick back-press, DisposableEffect still sees it.
+        serverRef.set(s)
+        serverForUi = s
         val startResult = withContext(Dispatchers.IO) {
             runCatching { s.start(0, false) }
         }
         startResult.onFailure { e ->
             Log.e("ImmichFire", "ConfigServer.start failed", e)
+            // Start failed: nothing to stop, clear the ref so onDispose doesn't try.
+            serverRef.compareAndSet(s, null)
             lastMessage = "Setup server failed: ${e.javaClass.simpleName}: ${e.message}"
         }.onSuccess {
             Log.i("ImmichFire", "ConfigServer started on $url")
         }
-        server = s
     }
     DisposableEffect(Unit) {
-        onDispose { server?.stop() }
+        onDispose {
+            // stop() can block briefly closing sockets; keep it off the main thread.
+            val s = serverRef.getAndSet(null) ?: return@onDispose
+            Thread({ runCatching { s.stop() } }, "immichfire-setup-stop").apply {
+                isDaemon = true
+                start()
+            }
+        }
     }
 
     LaunchedEffect(done) {
-        if (done) onDone()
+        if (done) {
+            // Stop the embedded server the moment setup succeeds, not when the composable
+            // happens to be disposed — otherwise the port keeps listening to other LAN hosts
+            // during the handoff to the source picker.
+            val s = serverRef.getAndSet(null)
+            withContext(Dispatchers.IO) { runCatching { s?.stop() } }
+            onDone()
+        }
     }
 
     // QR encode on background dispatcher; pixels loop is big enough to jank the UI.
@@ -150,7 +173,7 @@ fun SetupScreen(
     LaunchedEffect(url) {
         qr = withContext(Dispatchers.Default) { QrCode.encode(url) }
     }
-    val code = server?.pairingCode ?: "------"
+    val code = serverForUi?.pairingCode ?: "------"
 
     Box(Modifier.fillMaxSize().background(ImmichColors.Background)) {
         Column(Modifier.fillMaxSize().padding(horizontal = 56.dp, vertical = 40.dp)) {

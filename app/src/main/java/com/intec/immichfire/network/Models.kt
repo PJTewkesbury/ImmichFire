@@ -22,7 +22,10 @@ data class AlbumDetails(
 @Serializable
 data class Asset(
     val id: String,
-    val type: String = "IMAGE",
+    // Nullable so a future Immich payload that emits `type: null` (e.g. for an unknown or
+    // placeholder asset) doesn't silently decode as IMAGE and get mis-played as a photo.
+    // Consumers should filter with `type.equals("IMAGE", ignoreCase = true) == true`.
+    val type: String? = null,
     val originalFileName: String? = null,
     val fileCreatedAt: String? = null,
     val localDateTime: String? = null,

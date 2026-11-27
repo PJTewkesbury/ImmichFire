@@ -18,7 +18,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -92,13 +91,9 @@ fun SlideshowScreen(
         onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
-    // When the user leaves the slideshow (Back to picker, Settings, app background), drop the
-    // decoded previews we accumulated from memory. Disk cache survives (so re-entry is quick).
-    DisposableEffect(Unit) {
-        onDispose {
-            runCatching { SingletonImageLoader.get(context).memoryCache?.clear() }
-        }
-    }
+    // Coil's LRU memory cache handles its own eviction; wiping it on exit discards warm
+    // bitmaps the user might see again seconds later (slideshow re-entry, back from
+    // Settings, etc.). Leave it alone.
 
     LaunchedEffect(state.playing, state.index, settings.slideshowIntervalMs, state.assets.size) {
         if (state.playing && state.assets.isNotEmpty()) {
@@ -151,13 +146,17 @@ fun SlideshowScreen(
     // Zoom / pan state. zoomMode==false => normal slideshow. On long-press OK we enter zoom
     // mode at 1.5x, pause playback, D-pad pans, short-press OK cycles in 0.5x steps up to 4x,
     // then exits zoom (back to 1x).
+    //
+    // Long-press detection: schedule a delay() job on KeyDown and cancel it on KeyUp. We
+    // used to rely on nativeKeyEvent.repeatCount, but many Fire TV / ADT-3 remotes don't
+    // auto-repeat DPAD_CENTER, so long-press never fired.
     var zoomMode by remember { mutableStateOf(false) }
     var zoomLevel by remember { mutableFloatStateOf(1f) }
     var panX by remember { mutableFloatStateOf(0f) }
     var panY by remember { mutableFloatStateOf(0f) }
     var viewportSize by remember { mutableStateOf(IntSize.Zero) }
-    var centerDownAt by remember { mutableLongStateOf(0L) }
     var longPressFired by remember { mutableStateOf(false) }
+    var longPressJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     fun clampPan() {
         val maxX = viewportSize.width * (zoomLevel - 1f) / 2f
@@ -192,23 +191,26 @@ fun SlideshowScreen(
                 if (e.key == Key.DirectionCenter || e.key == Key.Enter) {
                     when (e.type) {
                         KeyEventType.KeyDown -> {
-                            if (e.nativeKeyEvent.repeatCount == 0) {
-                                centerDownAt = System.currentTimeMillis()
+                            // Only schedule once per press: a KeyDown can repeat on some
+                            // remotes even when we don't rely on it for long-press logic.
+                            if (longPressJob == null) {
                                 longPressFired = false
-                            } else if (!longPressFired &&
-                                System.currentTimeMillis() - centerDownAt >= Constants.Slideshow.ZOOM_LONG_PRESS_MS
-                            ) {
-                                longPressFired = true
-                                if (!zoomMode) {
-                                    zoomMode = true
-                                    zoomLevel = Constants.Slideshow.ZOOM_INITIAL
-                                    panX = 0f; panY = 0f
-                                    if (state.playing) vm.togglePlay()
+                                longPressJob = uiScope.launch {
+                                    delay(Constants.Slideshow.ZOOM_LONG_PRESS_MS)
+                                    longPressFired = true
+                                    if (!zoomMode) {
+                                        zoomMode = true
+                                        zoomLevel = Constants.Slideshow.ZOOM_INITIAL
+                                        panX = 0f; panY = 0f
+                                        if (state.playing) vm.togglePlay()
+                                    }
                                 }
                             }
                             return@onKeyEvent true
                         }
                         KeyEventType.KeyUp -> {
+                            longPressJob?.cancel()
+                            longPressJob = null
                             if (!longPressFired) {
                                 if (zoomMode) {
                                     val next = zoomLevel + Constants.Slideshow.ZOOM_STEP
@@ -222,7 +224,6 @@ fun SlideshowScreen(
                                     vm.togglePlay()
                                 }
                             }
-                            centerDownAt = 0L
                             longPressFired = false
                             return@onKeyEvent true
                         }

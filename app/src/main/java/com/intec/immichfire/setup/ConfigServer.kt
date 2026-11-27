@@ -7,12 +7,8 @@ import com.intec.immichfire.core.appContainer
 import com.intec.immichfire.data.ApiResult
 import com.intec.immichfire.data.Credentials
 import fi.iki.elonen.NanoHTTPD
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
-import java.net.URLDecoder
 import kotlin.random.Random
 
 data class ConfigSubmission(
@@ -38,7 +34,6 @@ class ConfigServer(
 ) : NanoHTTPD(port) {
 
     val pairingCode: String = Random.nextInt(0, 1_000_000).toString().padStart(6, '0')
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val lanDiscovery = LanDiscovery(appContext)
 
     override fun serve(session: IHTTPSession): Response {
@@ -67,7 +62,7 @@ class ConfigServer(
 
     private fun handleSubmit(session: IHTTPSession): Response {
         if (session.method != Method.POST) return notFound()
-        val params = parseForm(readBody(session))
+        val params = formParams(session)
         val code = params["code"].orEmpty()
         val url = params["url"].orEmpty().trim()
         val key = params["apiKey"].orEmpty().trim()
@@ -81,7 +76,7 @@ class ConfigServer(
     }
 
     private fun handleTest(session: IHTTPSession): Response {
-        val params = parseForm(readBody(session))
+        val params = formParams(session)
         val url = params["url"].orEmpty().trim()
         val key = params["apiKey"].orEmpty().trim()
         Log.i("ImmichFire", "Test ping requested url=$url keyLen=${key.length}")
@@ -96,6 +91,21 @@ class ConfigServer(
         return newFixedLengthResponse(Response.Status.OK, "text/plain", message)
     }
 
+    /**
+     * Pull form-encoded parameters via NanoHTTPD's own parser. The previous hand-rolled
+     * readBody() racing with NanoHTTPD's internal body consumption could return empty on
+     * some NanoHTTPD builds, causing every submit to look like "Wrong pairing code." or
+     * empty URL with no useful error. [NanoHTTPD.IHTTPSession.parseBody] populates
+     * `session.parameters` for application/x-www-form-urlencoded POSTs.
+     */
+    private fun formParams(session: IHTTPSession): Map<String, String> {
+        if (session.method == Method.POST) {
+            runCatching { session.parseBody(HashMap<String, String>()) }
+        }
+        return session.parameters
+            .mapValues { (_, v) -> v.firstOrNull().orEmpty() }
+    }
+
     private fun html(body: String) =
         newFixedLengthResponse(Response.Status.OK, "text/html; charset=utf-8", body)
 
@@ -104,30 +114,4 @@ class ConfigServer(
 
     private fun escapeJson(s: String): String =
         s.replace("\\", "\\\\").replace("\"", "\\\"")
-
-    private fun readBody(session: IHTTPSession): String {
-        val lenHeader = session.headers["content-length"]?.toIntOrNull() ?: 0
-        if (lenHeader <= 0) return ""
-        val buf = ByteArray(lenHeader)
-        var read = 0
-        while (read < lenHeader) {
-            val n = session.inputStream.read(buf, read, lenHeader - read)
-            if (n <= 0) break
-            read += n
-        }
-        return String(buf, 0, read, Charsets.UTF_8)
-    }
-
-    private fun parseForm(body: String): Map<String, String> =
-        body.split('&').mapNotNull {
-            val i = it.indexOf('='); if (i < 0) return@mapNotNull null
-            val k = URLDecoder.decode(it.substring(0, i), "UTF-8")
-            val v = URLDecoder.decode(it.substring(i + 1), "UTF-8")
-            k to v
-        }.toMap()
-
-    override fun stop() {
-        super.stop()
-        scope.coroutineContext[kotlinx.coroutines.Job]?.cancel()
-    }
 }
