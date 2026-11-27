@@ -78,3 +78,37 @@ data class Library(
     val id: String,
     @SerialName("importPaths") val importPaths: List<String> = emptyList(),
 )
+
+@Serializable
+data class LoginRequest(
+    val email: String,
+    val password: String,
+)
+
+@Serializable
+data class LoginResponse(
+    val accessToken: String,
+    val userId: String? = null,
+    val name: String? = null,
+    val isAdmin: Boolean? = null,
+)
+
+@Serializable
+data class CreateApiKeyRequest(
+    val name: String,
+    // Required by Immich 1.106+ — "all" matches the default when a user creates a key by
+    // hand in the Immich account screen, so an auto-provisioned key behaves identically.
+    val permissions: List<String> = listOf("all"),
+)
+
+@Serializable
+data class CreateApiKeyResponse(
+    val secret: String,
+    val apiKey: ApiKeyInfo? = null,
+)
+
+@Serializable
+data class ApiKeyInfo(
+    val id: String? = null,
+    val name: String? = null,
+)

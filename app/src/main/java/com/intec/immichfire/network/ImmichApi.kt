@@ -2,6 +2,7 @@ package com.intec.immichfire.network
 
 import retrofit2.http.Body
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.POST
 import retrofit2.http.Query
 
@@ -27,4 +28,13 @@ interface ImmichApi {
 
     @GET("api/libraries")
     suspend fun listLibraries(): List<Library>
+
+    @POST("api/auth/login")
+    suspend fun login(@Body req: LoginRequest): LoginResponse
+
+    @POST("api/api-keys")
+    suspend fun createApiKey(
+        @Header("Authorization") bearer: String,
+        @Body req: CreateApiKeyRequest,
+    ): CreateApiKeyResponse
 }

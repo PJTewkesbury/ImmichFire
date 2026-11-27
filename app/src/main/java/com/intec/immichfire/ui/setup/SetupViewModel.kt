@@ -27,6 +27,26 @@ class SetupViewModel(
         return ApiResult.Success(Unit)
     }
 
+    /**
+     * Sign in with the user's Immich email + password, mint a new API key, verify it with
+     * a ping, and persist it. Password is never stored — only the generated key is.
+     */
+    suspend fun loginAndSave(
+        url: String,
+        email: String,
+        password: String,
+        keyName: String,
+    ): ApiResult<Unit> {
+        val cleanUrl = url.trim()
+        if (cleanUrl.isBlank() || email.isBlank() || password.isBlank()) {
+            return ApiResult.Failure(ImmichError.NotConfigured)
+        }
+        val minted = repo.loginAndCreateApiKey(cleanUrl, email, password, keyName)
+        val key = (minted as? ApiResult.Success)?.value
+            ?: return minted as ApiResult.Failure
+        return verifyAndSave(cleanUrl, key)
+    }
+
     suspend fun testOnly(url: String, apiKey: String): ApiResult<Unit> =
         repo.ping(Credentials(url.trim(), apiKey.trim()))
 

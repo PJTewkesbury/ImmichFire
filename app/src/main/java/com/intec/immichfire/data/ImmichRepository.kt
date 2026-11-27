@@ -16,6 +16,20 @@ interface ImmichRepository {
     /** Lightweight connectivity check against `/api/server/ping`. */
     suspend fun ping(credentials: Credentials): ApiResult<Unit>
 
+    /**
+     * Sign in with Immich email + password, then mint a new API key named [keyName] with
+     * "all" permissions (matching what the Immich UI gives a user-created key by default).
+     * Returns the raw key secret on success — callers typically ping with it and persist it
+     * as [Credentials.apiKey]. Never saves the password; the password only lives in memory
+     * for the two HTTPS calls.
+     */
+    suspend fun loginAndCreateApiKey(
+        baseUrl: String,
+        email: String,
+        password: String,
+        keyName: String,
+    ): ApiResult<String>
+
     /** Albums with a non-blank name and at least one asset, newest-first. */
     suspend fun listAlbums(): ApiResult<List<AlbumSummary>>
 

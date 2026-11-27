@@ -18,6 +18,18 @@ data class ConfigSubmission(
     val message: String,
 )
 
+/** Which credential path the phone chose on the setup form. */
+enum class AuthMode { LOGIN, API_KEY }
+
+/** Raw form payload passed to the submit callback — the VM picks the right flow from [mode]. */
+data class ConfigRequest(
+    val serverUrl: String,
+    val mode: AuthMode,
+    val apiKey: String = "",
+    val email: String = "",
+    val password: String = "",
+)
+
 /**
  * Lightweight embedded HTTP server for the phone-based setup flow. The TV shows a QR, the
  * phone POSTs here with URL + API key + pairing code. The actual Immich ping is injected
@@ -30,7 +42,7 @@ class ConfigServer(
     private val pingServer: suspend (Credentials) -> ApiResult<Unit> = { cred ->
         appContext.appContainer.immichRepository.ping(cred)
     },
-    private val onSubmit: suspend (serverUrl: String, apiKey: String) -> ConfigSubmission,
+    private val onSubmit: suspend (ConfigRequest) -> ConfigSubmission,
 ) : NanoHTTPD(port) {
 
     val pairingCode: String = Random.nextInt(0, 1_000_000).toString().padStart(6, '0')
@@ -65,13 +77,25 @@ class ConfigServer(
         val params = formParams(session)
         val code = params["code"].orEmpty()
         val url = params["url"].orEmpty().trim()
-        val key = params["apiKey"].orEmpty().trim()
+        val modeRaw = params["mode"].orEmpty().lowercase()
+        val mode = if (modeRaw == "apikey") AuthMode.API_KEY else AuthMode.LOGIN
+        val request = ConfigRequest(
+            serverUrl = url,
+            mode = mode,
+            apiKey = params["apiKey"].orEmpty().trim(),
+            email = params["email"].orEmpty().trim(),
+            // Password is NOT trimmed; Immich allows leading/trailing spaces and we have no
+            // right to silently rewrite the user's secret.
+            password = params["password"].orEmpty(),
+        )
         if (code != pairingCode) {
             return html(SetupHtml.resultPage(success = false, message = "Wrong pairing code."))
         }
         val result = runBlocking {
-            withTimeoutOrNull(15_000) { onSubmit(url, key) }
-        } ?: ConfigSubmission(url, key, false, "Timed out contacting server.")
+            // Login + key mint can take longer than a ping — 30 s keeps slow TLS handshakes
+            // from timing out the UI loop while still bounding the request.
+            withTimeoutOrNull(30_000) { onSubmit(request) }
+        } ?: ConfigSubmission(url, request.apiKey, false, "Timed out contacting server.")
         return html(SetupHtml.resultPage(result.valid, result.message))
     }
 

@@ -3,7 +3,9 @@ package com.intec.immichfire.data
 import com.intec.immichfire.core.Constants
 import com.intec.immichfire.network.AlbumSummary
 import com.intec.immichfire.network.Asset
+import com.intec.immichfire.network.CreateApiKeyRequest
 import com.intec.immichfire.network.ImmichApi
+import com.intec.immichfire.network.LoginRequest
 import com.intec.immichfire.network.SearchMetadataRequest
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.Json
@@ -71,6 +73,55 @@ class RetrofitImmichRepository(
     private suspend inline fun <T> call(crossinline op: suspend (ImmichApi) -> T): ApiResult<T> {
         val a = apiForCurrent() ?: return ApiResult.Failure(ImmichError.NotConfigured)
         return runCatching { op(a) }.fold(
+            onSuccess = { ApiResult.Success(it) },
+            onFailure = { ApiResult.Failure(ImmichError.from(it)) },
+        )
+    }
+
+    /**
+     * Build a Retrofit [ImmichApi] against [baseUrl] that does NOT attach the x-api-key
+     * header — used by login + create-api-key, which can't present a key yet (login) or use
+     * a bearer token instead (create-api-key). Also mirrors [ping]'s no-follow-redirect
+     * behavior so no header ever rides along to another host.
+     */
+    private fun noAuthApi(baseUrl: String): ImmichApi {
+        val client = baseOkHttp.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .addInterceptor { chain ->
+                chain.proceed(
+                    chain.request().newBuilder()
+                        .addHeader("Accept", "application/json")
+                        .build()
+                )
+            }
+            .build()
+        return Retrofit.Builder()
+            .baseUrl(baseUrl.trimEnd('/') + "/")
+            .client(client)
+            .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
+            .build()
+            .create(ImmichApi::class.java)
+    }
+
+    override suspend fun loginAndCreateApiKey(
+        baseUrl: String,
+        email: String,
+        password: String,
+        keyName: String,
+    ): ApiResult<String> {
+        if (baseUrl.isBlank() || email.isBlank() || password.isBlank()) {
+            return ApiResult.Failure(ImmichError.NotConfigured)
+        }
+        val api = noAuthApi(baseUrl)
+        return runCatching {
+            val login = api.login(LoginRequest(email = email.trim(), password = password))
+            val key = api.createApiKey(
+                bearer = "Bearer ${login.accessToken}",
+                req = CreateApiKeyRequest(name = keyName),
+            )
+            key.secret
+        }.fold(
             onSuccess = { ApiResult.Success(it) },
             onFailure = { ApiResult.Failure(ImmichError.from(it)) },
         )

@@ -36,6 +36,7 @@ import androidx.tv.material3.Text
 import com.intec.immichfire.core.Constants
 import com.intec.immichfire.core.appContainer
 import com.intec.immichfire.data.ApiResult
+import com.intec.immichfire.setup.AuthMode
 import com.intec.immichfire.setup.ConfigServer
 import com.intec.immichfire.setup.ConfigSubmission
 import com.intec.immichfire.ui.theme.ImmichColors
@@ -115,18 +116,35 @@ fun SetupScreen(
     }
 
     LaunchedEffect(Unit) {
-        val s = ConfigServer(appContext) { submittedUrl, submittedKey ->
-            when (val r = vm.verifyAndSave(submittedUrl, submittedKey)) {
+        val s = ConfigServer(appContext) { req ->
+            // Human-identifiable key name so the user can revoke it later in Immich's
+            // account screen; model+code looks like "ImmichFire (AFTT / 192.168.0.236)".
+            val keyName = buildString {
+                append("ImmichFire (")
+                append(android.os.Build.MODEL ?: "Fire TV")
+                (localIpState as? LocalIpState.Ready)?.let { append(" / ${it.ip}") }
+                append(")")
+            }
+            val result = when (req.mode) {
+                AuthMode.API_KEY ->
+                    vm.verifyAndSave(req.serverUrl, req.apiKey)
+                AuthMode.LOGIN ->
+                    vm.loginAndSave(req.serverUrl, req.email, req.password, keyName)
+            }
+            when (result) {
                 is ApiResult.Success -> {
                     lastMessage = "Configured and saved."
                     done = true
-                    ConfigSubmission(submittedUrl, submittedKey, true, "Saved. Return to the TV.")
+                    ConfigSubmission(req.serverUrl, req.apiKey, true, "Saved. Return to the TV.")
                 }
                 is ApiResult.Failure -> {
+                    val label = if (req.mode == AuthMode.LOGIN) "Sign-in" else "Ping"
                     lastMessage = "Could not reach Immich server."
-                    Log.e("ImmichFire", "Ping failed: ${r.error.displayMessage}")
-                    ConfigSubmission(submittedUrl, submittedKey, false,
-                        "Could not reach Immich. ${r.error.displayMessage}")
+                    Log.e("ImmichFire", "$label failed: ${result.error.displayMessage}")
+                    ConfigSubmission(
+                        req.serverUrl, req.apiKey, false,
+                        "$label failed. ${result.error.displayMessage}",
+                    )
                 }
             }
         }
@@ -226,7 +244,8 @@ fun SetupScreen(
                         )
                         Text(
                             "On your phone or laptop, open the URL shown — or scan the QR code. " +
-                                "You'll be asked for a pairing code, your Immich URL, and an API key.",
+                                "Sign in with your Immich email and password (an API key will be " +
+                                "created for you), or paste an existing API key.",
                             color = ImmichColors.OnSurfaceSecondary,
                             fontSize = 17.sp,
                         )
