@@ -8,27 +8,36 @@ import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
-import okhttp3.OkHttpClient
+import com.intec.immichfire.core.AppContainer
+import com.intec.immichfire.core.Constants
 import okio.Path.Companion.toOkioPath
 
 class ImmichFireApplication : Application(), SingletonImageLoader.Factory {
 
+    /** Lazily built on first access AFTER attachBaseContext — safe for `applicationContext`. */
+    val container: AppContainer by lazy { AppContainer(applicationContext) }
+
     override fun newImageLoader(context: PlatformContext): ImageLoader {
-        val okHttp = OkHttpClient.Builder().build()
+        // Share the app's single OkHttp with Coil so TLS sessions and connections aren't
+        // duplicated between API calls and thumbnail loads.
+        val sharedOkHttp = container.okHttp
         return ImageLoader.Builder(context)
-            // Memory cache: 15% of the app heap is plenty for a slideshow — we only need the
-            // current, previous, and next few decoded previews. The rest comes from disk.
-            .memoryCache { MemoryCache.Builder().maxSizePercent(context, 0.15).build() }
-            // Disk cache: cap at 64 MB. Preview thumbnails are ~100–400 KB each, so this still
-            // holds hundreds of images; LRU eviction keeps it from growing. 512 MB was
-            // overkill for a Fire TV Stick with only ~8 GB total internal storage.
+            // Memory cache: fraction of the app heap is plenty for a slideshow — we only need
+            // the current, previous, and next few decoded previews. The rest comes from disk.
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizePercent(context, Constants.Images.MEMORY_CACHE_HEAP_FRACTION)
+                    .build()
+            }
+            // Disk cache: preview thumbnails are ~100–400 KB each; LRU eviction keeps it from
+            // growing. Cap sized for a Fire TV Stick with only ~8 GB total internal storage.
             .diskCache {
                 DiskCache.Builder()
                     .directory(cacheDir.resolve("image_cache").toOkioPath())
-                    .maxSizeBytes(64L * 1024 * 1024)
+                    .maxSizeBytes(Constants.Images.DISK_CACHE_BYTES)
                     .build()
             }
-            .components { add(OkHttpNetworkFetcherFactory(callFactory = { okHttp })) }
+            .components { add(OkHttpNetworkFetcherFactory(callFactory = { sharedOkHttp })) }
             .crossfade(true)
             .build()
     }

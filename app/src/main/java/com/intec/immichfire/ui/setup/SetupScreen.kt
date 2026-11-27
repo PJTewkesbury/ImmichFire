@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -21,20 +20,22 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
-import com.intec.immichfire.data.SettingsRepository
-import com.intec.immichfire.network.ImmichClient
+import com.intec.immichfire.core.Constants
+import com.intec.immichfire.core.appContainer
+import com.intec.immichfire.data.ApiResult
 import com.intec.immichfire.setup.ConfigServer
 import com.intec.immichfire.setup.ConfigSubmission
 import com.intec.immichfire.ui.theme.ImmichColors
@@ -42,26 +43,26 @@ import com.intec.immichfire.ui.theme.ImmichLogo
 import com.intec.immichfire.util.NetworkUtils
 import com.intec.immichfire.util.QrCode
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun SetupScreen(
-    repo: SettingsRepository,
     onDone: () -> Unit,
 ) {
-    val scope = rememberCoroutineScope()
     val context = LocalContext.current
+    val container = context.appContainer
+    val vm: SetupViewModel = viewModel(
+        factory = SetupViewModel.Factory(container.immichRepository, container.settingsRepository),
+    )
     val appContext = remember { context.applicationContext }
     val localIp = remember { NetworkUtils.localIpv4() }
-    val url = remember(localIp) { localIp?.let { "http://$it:8080" } }
+    val url = remember(localIp) { localIp?.let { "http://$it:${Constants.Network.SETUP_SERVER_PORT}" } }
     var server by remember { mutableStateOf<ConfigServer?>(null) }
     var done by remember { mutableStateOf(false) }
     var lastMessage by remember { mutableStateOf<String?>(null) }
 
-    // No Wi-Fi / no local IP → the QR URL would be nonsense and the config server has no
-    // interface to bind to. Tell the user instead of showing a broken QR.
+    // No Wi-Fi / no local IP → QR URL would be nonsense; tell the user instead.
     if (url == null) {
         Box(Modifier.fillMaxSize().background(ImmichColors.Background)) {
             Column(
@@ -91,17 +92,18 @@ fun SetupScreen(
 
     LaunchedEffect(Unit) {
         val s = ConfigServer(appContext) { submittedUrl, submittedKey ->
-            val pingResult = runCatching { ImmichClient.create(submittedUrl, submittedKey).ping() }
-            pingResult.onFailure { Log.e("ImmichFire", "Ping to $submittedUrl failed", it) }
-            val ok = pingResult.isSuccess
-            if (ok) {
-                repo.saveServer(submittedUrl, submittedKey)
-                lastMessage = "Configured and saved."
-                done = true
-                ConfigSubmission(submittedUrl, submittedKey, true, "Saved. Return to the TV.")
-            } else {
-                lastMessage = "Could not reach Immich server."
-                ConfigSubmission(submittedUrl, submittedKey, false, "Could not reach Immich. Check URL and API key.")
+            when (val r = vm.verifyAndSave(submittedUrl, submittedKey)) {
+                is ApiResult.Success -> {
+                    lastMessage = "Configured and saved."
+                    done = true
+                    ConfigSubmission(submittedUrl, submittedKey, true, "Saved. Return to the TV.")
+                }
+                is ApiResult.Failure -> {
+                    lastMessage = "Could not reach Immich server."
+                    Log.e("ImmichFire", "Ping failed: ${r.error.displayMessage}")
+                    ConfigSubmission(submittedUrl, submittedKey, false,
+                        "Could not reach Immich. ${r.error.displayMessage}")
+                }
             }
         }
         val startResult = withContext(Dispatchers.IO) {
@@ -111,7 +113,7 @@ fun SetupScreen(
             Log.e("ImmichFire", "ConfigServer.start failed", e)
             lastMessage = "Setup server failed: ${e.javaClass.simpleName}: ${e.message}"
         }.onSuccess {
-            Log.i("ImmichFire", "ConfigServer started. listening=${s.wasStarted()} url=$url ip=$localIp")
+            Log.i("ImmichFire", "ConfigServer started on $url")
         }
         server = s
     }
@@ -123,7 +125,11 @@ fun SetupScreen(
         if (done) onDone()
     }
 
-    val qr = remember(url) { QrCode.encode(url) }
+    // QR encode on background dispatcher; pixels loop is big enough to jank the UI.
+    var qr by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        qr = withContext(Dispatchers.Default) { QrCode.encode(url) }
+    }
     val code = server?.pairingCode ?: "------"
 
     Box(Modifier.fillMaxSize().background(ImmichColors.Background)) {
@@ -144,14 +150,16 @@ fun SetupScreen(
                             .border(1.dp, ImmichColors.PrimaryBorder, RoundedCornerShape(16.dp))
                             .padding(16.dp),
                     ) {
-                        Image(
-                            bitmap = qr,
-                            contentDescription = "Pairing QR code for $url",
-                            modifier = Modifier
-                                .size(320.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color.White),
-                        )
+                        qr?.let { bmp ->
+                            Image(
+                                bitmap = bmp,
+                                contentDescription = "Pairing QR code for $url",
+                                modifier = Modifier
+                                    .size(320.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color.White),
+                            )
+                        } ?: Box(Modifier.size(320.dp).background(Color.White))
                     }
                     Spacer(Modifier.height(16.dp))
                     Text(url, color = ImmichColors.OnSurface, fontSize = 18.sp, fontWeight = FontWeight.Medium)

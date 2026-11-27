@@ -1,8 +1,8 @@
 package com.intec.immichfire.ui.sources
 
 import android.widget.Toast
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -16,24 +16,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.activity.ComponentActivity
-import androidx.compose.ui.platform.LocalContext
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,63 +39,54 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
-import com.intec.immichfire.data.SettingsRepository
-import com.intec.immichfire.network.AlbumSummary
-import com.intec.immichfire.network.ImmichClient
+import com.intec.immichfire.core.appContainer
+import com.intec.immichfire.data.ImmichSettings
 import com.intec.immichfire.ui.theme.ImmichColors
 import com.intec.immichfire.ui.theme.ImmichLogo
-import com.intec.immichfire.ui.theme.ImmichSectionCard
 import com.intec.immichfire.ui.theme.ImmichRowButton
+import com.intec.immichfire.ui.theme.ImmichSectionCard
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun SourcePickerScreen(
-    repo: SettingsRepository,
     onStartSlideshow: (source: String, param: String) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val settings by repo.settings.collectAsState(initial = com.intec.immichfire.data.ImmichSettings())
-    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val container = context.appContainer
+    val settings by container.settingsRepository.settings.collectAsState(initial = ImmichSettings())
 
-    var albums by remember { mutableStateOf<List<AlbumSummary>>(emptyList()) }
-    var folders by remember { mutableStateOf<List<String>>(emptyList()) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var refreshTick by remember { mutableIntStateOf(0) }
+    val vm: SourcePickerViewModel = viewModel(
+        factory = SourcePickerViewModel.Factory(container.immichRepository),
+    )
+    val state by vm.state.collectAsState()
 
-    // Refresh the album list every time the app returns to the foreground.
+    // Refresh on first entry AND on every ON_RESUME (user coming back from Settings etc.).
     val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, settings.serverUrl, settings.apiKey) {
+        if (settings.isConfigured) vm.refresh()
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) refreshTick++
+            if (event == Lifecycle.Event.ON_RESUME && settings.isConfigured) vm.refresh()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    LaunchedEffect(settings.serverUrl, settings.apiKey, refreshTick) {
-        if (settings.isConfigured) {
-            error = null
-            runCatching {
-                val api = ImmichClient.create(settings.serverUrl, settings.apiKey)
-                albums = api.listAlbums()
-                    .filter { it.assetCount > 0 && it.name.isNotBlank() }
-                    .sortedByDescending { it.createdAt ?: "" }
-                folders = runCatching { api.listFolderPaths() }.getOrDefault(emptyList())
-            }.onFailure { error = it.message }
-        }
-    }
-
     val focusRecent = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focusRecent.requestFocus() } }
 
-    // Double-tap-back to exit, so a stray Back press doesn't drop out of the app silently.
-    val context = LocalContext.current
-    var lastBackPressAt by remember { mutableStateOf(0L) }
+    // Double-tap-back to exit so a stray Back doesn't drop out of the app silently.
+    var lastBackPressAt by remember { mutableLongStateOf(0L) }
     BackHandler {
         val now = System.currentTimeMillis()
         if (now - lastBackPressAt < 2_000L) {
@@ -123,7 +107,6 @@ fun SourcePickerScreen(
             modifier = Modifier.verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // Header bar — Immich logo + server + settings pill
             Row(verticalAlignment = Alignment.CenterVertically) {
                 ImmichLogo()
                 Spacer(Modifier.width(16.dp))
@@ -136,7 +119,7 @@ fun SourcePickerScreen(
                 HeaderPill("Settings", onClick = onOpenSettings)
             }
 
-            error?.let {
+            state.error?.let {
                 Box(
                     Modifier
                         .fillMaxWidth()
@@ -145,11 +128,10 @@ fun SourcePickerScreen(
                         .border(1.dp, Color(0xFFF2B5B5), RoundedCornerShape(10.dp))
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                 ) {
-                    Text("Error: $it", color = ImmichColors.Error, fontSize = 13.sp)
+                    Text("Error: ${it.displayMessage}", color = ImmichColors.Error, fontSize = 13.sp)
                 }
             }
 
-            // "Most recent" section card
             ImmichSectionCard(
                 title = "Most recent",
                 subtitle = "Play a slideshow of your newest photos",
@@ -161,12 +143,11 @@ fun SourcePickerScreen(
                 )
             }
 
-            // Albums card — gets the remaining vertical space so more rows show
             ImmichSectionCard(
                 title = "Albums",
                 subtitle = "Collections of assets that can be shared with other users.",
             ) {
-                if (albums.isEmpty()) {
+                if (state.albums.isEmpty()) {
                     Text(
                         "No albums found.",
                         color = ImmichColors.OnSurfaceSecondary,
@@ -177,7 +158,7 @@ fun SourcePickerScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        albums.forEach { a ->
+                        state.albums.forEach { a ->
                             ImmichRowButton(
                                 label = a.name,
                                 trailing = "${a.assetCount}",
@@ -188,12 +169,11 @@ fun SourcePickerScreen(
                 }
             }
 
-            // Folders card
             ImmichSectionCard(
                 title = "Folders",
                 subtitle = "Browsing the folder view for the photos and videos on the file system",
             ) {
-                if (folders.isEmpty()) {
+                if (state.folders.isEmpty()) {
                     Text(
                         "No folders.",
                         color = ImmichColors.OnSurfaceSecondary,
@@ -204,7 +184,7 @@ fun SourcePickerScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        folders.forEach { f ->
+                        state.folders.forEach { f ->
                             ImmichRowButton(label = f, onClick = { onStartSlideshow("folder", f) })
                         }
                     }

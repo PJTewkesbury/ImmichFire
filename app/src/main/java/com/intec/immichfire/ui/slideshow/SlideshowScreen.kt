@@ -3,27 +3,15 @@ package com.intec.immichfire.ui.slideshow
 import android.os.Build
 import android.view.WindowManager
 import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -38,10 +26,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
@@ -64,12 +50,12 @@ import coil3.compose.AsyncImage
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
+import com.intec.immichfire.core.Constants
+import com.intec.immichfire.core.appContainer
 import com.intec.immichfire.data.FitMode
 import com.intec.immichfire.data.ImmichSettings
 import com.intec.immichfire.data.SettingsRepository
-import com.intec.immichfire.data.SortOrder
 import com.intec.immichfire.data.Transition
-import com.intec.immichfire.network.Asset
 import com.intec.immichfire.network.ImmichClient
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -87,12 +73,12 @@ fun SlideshowScreen(
     val uiScope = rememberCoroutineScope()
     val vm: SlideshowViewModel = viewModel(
         key = "slideshow-$source-$param",
-        factory = SlideshowViewModel.Factory(context.applicationContext, source, param),
+        factory = SlideshowViewModel.Factory(context.appContainer.immichRepository, source, param),
     )
     val state by vm.state.collectAsState()
 
     LaunchedEffect(settings.serverUrl, settings.apiKey, settings.shuffle, settings.sortOrder) {
-        vm.load(settings.serverUrl, settings.apiKey, settings.shuffle, settings.sortOrder)
+        vm.load(settings.shuffle, settings.sortOrder)
         vm.resort(settings.sortOrder)
     }
 
@@ -104,8 +90,7 @@ fun SlideshowScreen(
     }
 
     // When the user leaves the slideshow (Back to picker, Settings, app background), drop the
-    // decoded previews we accumulated from memory. Disk cache survives (so re-entry is quick)
-    // and is itself capped at 64 MB.
+    // decoded previews we accumulated from memory. Disk cache survives (so re-entry is quick).
     DisposableEffect(Unit) {
         onDispose {
             runCatching { SingletonImageLoader.get(context).memoryCache?.clear() }
@@ -119,13 +104,13 @@ fun SlideshowScreen(
         }
     }
 
-    // Prefetch the next 3 images into Coil's memory/disk cache so the next
+    // Prefetch the next few images into Coil's memory/disk cache so the next
     // transition doesn't start with a blank frame while the network loads.
     LaunchedEffect(state.index, state.assets.size, settings.serverUrl, settings.apiKey) {
         if (state.assets.isEmpty()) return@LaunchedEffect
         val loader = SingletonImageLoader.get(context)
         val headers = NetworkHeaders.Builder().set("x-api-key", settings.apiKey).build()
-        for (offset in 1..3) {
+        for (offset in 1..Constants.Slideshow.PREFETCH_AHEAD) {
             val next = state.index + offset
             val a = state.assets.getOrNull(next) ?: break
             val u = ImmichClient.thumbnailUrl(settings.serverUrl, a.id, size = "preview")
@@ -146,7 +131,7 @@ fun SlideshowScreen(
     var controlsInteraction by remember { mutableStateOf(0) }
     LaunchedEffect(showControls, controlsInteraction) {
         if (showControls) {
-            delay(6_000)
+            delay(Constants.Slideshow.OVERLAY_AUTO_HIDE_MS)
             showControls = false
         }
     }
@@ -188,9 +173,8 @@ fun SlideshowScreen(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { e ->
-                // While the overlay controls are up, let the chips (and the focus system,
-                // for Up/Down traversal between the two chip rows) handle every key except
-                // Back/Escape — those dismiss the overlay.
+                // Overlay up: let focus traversal (Up/Down between chip rows) handle keys;
+                // only Back/Escape dismiss.
                 if (showControls) {
                     if (e.type == KeyEventType.KeyUp && (e.key == Key.Back || e.key == Key.Escape)) {
                         showControls = false
@@ -207,12 +191,12 @@ fun SlideshowScreen(
                                 centerDownAt = System.currentTimeMillis()
                                 longPressFired = false
                             } else if (!longPressFired &&
-                                System.currentTimeMillis() - centerDownAt >= 500L
+                                System.currentTimeMillis() - centerDownAt >= Constants.Slideshow.ZOOM_LONG_PRESS_MS
                             ) {
                                 longPressFired = true
                                 if (!zoomMode) {
                                     zoomMode = true
-                                    zoomLevel = 1.5f
+                                    zoomLevel = Constants.Slideshow.ZOOM_INITIAL
                                     panX = 0f; panY = 0f
                                     if (state.playing) vm.togglePlay()
                                 }
@@ -222,8 +206,8 @@ fun SlideshowScreen(
                         KeyEventType.KeyUp -> {
                             if (!longPressFired) {
                                 if (zoomMode) {
-                                    val next = zoomLevel + 0.5f
-                                    if (next > 4f + 0.001f) {
+                                    val next = zoomLevel + Constants.Slideshow.ZOOM_STEP
+                                    if (next > Constants.Slideshow.ZOOM_MAX + 0.001f) {
                                         exitZoom()
                                     } else {
                                         zoomLevel = next
@@ -243,7 +227,7 @@ fun SlideshowScreen(
 
                 // In Zoom mode, D-pad arrows pan; Back exits zoom; next/prev disabled.
                 if (zoomMode) {
-                    val step = 80f
+                    val step = Constants.Slideshow.ZOOM_PAN_STEP_PX
                     if (e.type == KeyEventType.KeyDown) {
                         when (e.key) {
                             Key.DirectionLeft  -> { panX += step; clampPan(); return@onKeyEvent true }
@@ -265,12 +249,8 @@ fun SlideshowScreen(
                 // Normal slideshow controls.
                 if (e.type != KeyEventType.KeyUp) return@onKeyEvent false
                 when (e.key) {
-                    Key.DirectionRight, Key.MediaNext -> {
-                        if (showControls) false else { vm.next(settings.loop); true }
-                    }
-                    Key.DirectionLeft, Key.MediaPrevious -> {
-                        if (showControls) false else { vm.prev(settings.loop); true }
-                    }
+                    Key.DirectionRight, Key.MediaNext -> { vm.next(settings.loop); true }
+                    Key.DirectionLeft, Key.MediaPrevious -> { vm.prev(settings.loop); true }
                     Key.Spacebar,
                     Key.MediaPlayPause, Key.MediaPlay, Key.MediaPause -> { vm.togglePlay(); true }
                     Key.DirectionUp -> { vm.toggleInfo(); true }
@@ -282,7 +262,7 @@ fun SlideshowScreen(
     ) {
         when {
             state.loading -> Centered("Loading…", Color.White)
-            state.error != null -> Centered("Error: ${state.error}", Color(0xFFFF6666))
+            state.error != null -> Centered("Error: ${state.error?.displayMessage}", Color(0xFFFF6666))
             state.assets.isEmpty() -> Centered("No images found.", Color.White)
             else -> {
                 val asset = state.assets[state.index]
@@ -294,29 +274,34 @@ fun SlideshowScreen(
                 ) { i ->
                     val a = state.assets.getOrNull(i) ?: return@AnimatedContent
                     val u = ImmichClient.thumbnailUrl(settings.serverUrl, a.id, size = "preview")
-                    val req = ImageRequest.Builder(context)
-                        .data(u)
-                        .httpHeaders(NetworkHeaders.Builder().set("x-api-key", settings.apiKey).build())
-                        .build()
+                    val req = remember(u, settings.apiKey) {
+                        ImageRequest.Builder(context)
+                            .data(u)
+                            .httpHeaders(NetworkHeaders.Builder().set("x-api-key", settings.apiKey).build())
+                            .build()
+                    }
 
                     // Per-slide Ken Burns animation — each AnimatedContent cell gets its own
                     // Animatables keyed on `i`, so the outgoing slide keeps animating until it
                     // fades out while the incoming slide starts its own pan/zoom from scratch.
-                    val kbScale = remember(i) { Animatable(1.08f) }
+                    val kbScale = remember(i) { Animatable(Constants.Slideshow.KEN_BURNS_SCALE_FROM) }
                     val kbTx = remember(i) { Animatable(0f) }
                     val kbTy = remember(i) { Animatable(0f) }
                     LaunchedEffect(i, settings.transition, settings.slideshowIntervalMs) {
                         if (settings.transition == Transition.KenBurns) {
                             // Target over 2x the slide duration, so motion is still visible
                             // while the next slide is crossfading in.
-                            val durMs = (settings.slideshowIntervalMs * 2).toInt().coerceAtLeast(4000)
+                            val durMs = (settings.slideshowIntervalMs * 2).toInt()
+                                .coerceAtLeast(Constants.Slideshow.KEN_BURNS_MIN_DURATION_MS)
+                            val tx = Constants.Slideshow.KEN_BURNS_TRANSLATE_FRAC
+                            val ty = Constants.Slideshow.KEN_BURNS_TRANSLATE_FRAC_Y
                             val (txTargetFrac, tyTargetFrac) = when (i % 4) {
-                                0 -> 0.08f to 0.06f      // pan toward bottom-right
-                                1 -> -0.08f to 0.06f     // pan toward bottom-left
-                                2 -> 0.08f to -0.06f     // pan toward top-right
-                                else -> -0.08f to -0.06f // pan toward top-left
+                                0 -> tx to ty       // pan toward bottom-right
+                                1 -> -tx to ty      // pan toward bottom-left
+                                2 -> tx to -ty      // pan toward top-right
+                                else -> -tx to -ty  // pan toward top-left
                             }
-                            launch { kbScale.animateTo(1.25f, tween(durMs, easing = LinearEasing)) }
+                            launch { kbScale.animateTo(Constants.Slideshow.KEN_BURNS_SCALE_TO, tween(durMs, easing = LinearEasing)) }
                             launch { kbTx.animateTo(txTargetFrac, tween(durMs, easing = LinearEasing)) }
                             launch { kbTy.animateTo(tyTargetFrac, tween(durMs, easing = LinearEasing)) }
                         }
@@ -324,21 +309,13 @@ fun SlideshowScreen(
 
                     val isCurrent = i == state.index
                     val kenBurnsOn = settings.transition == Transition.KenBurns && !zoomMode
-                    val baseScale = if (kenBurnsOn) kbScale.value else 1f
-                    val baseTx = if (kenBurnsOn) kbTx.value * viewportSize.width else 0f
-                    val baseTy = if (kenBurnsOn) kbTy.value * viewportSize.height else 0f
                     val applyZoom = isCurrent && zoomMode
-                    val finalScale = if (applyZoom) zoomLevel else baseScale
-                    val finalTx = if (applyZoom) panX else baseTx
-                    val finalTy = if (applyZoom) panY else baseTy
 
                     val useBlurBackdrop = settings.fitMode == FitMode.FillBlurBackdrop &&
                         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
 
                     Box(Modifier.fillMaxSize()) {
                         if (useBlurBackdrop) {
-                            // Backdrop: same image cropped to fill and blurred so the letterbox
-                            // gets a tinted, out-of-focus wash of the picture instead of black.
                             AsyncImage(
                                 model = req,
                                 contentDescription = null,
@@ -354,12 +331,25 @@ fun SlideshowScreen(
                             contentDescription = a.originalFileName,
                             modifier = Modifier
                                 .fillMaxSize()
-                                .graphicsLayer(
-                                    scaleX = finalScale,
-                                    scaleY = finalScale,
-                                    translationX = finalTx,
-                                    translationY = finalTy,
-                                ),
+                                .graphicsLayer {
+                                    val s = when {
+                                        applyZoom -> zoomLevel
+                                        kenBurnsOn -> kbScale.value
+                                        else -> 1f
+                                    }
+                                    scaleX = s
+                                    scaleY = s
+                                    translationX = when {
+                                        applyZoom -> panX
+                                        kenBurnsOn -> kbTx.value * viewportSize.width
+                                        else -> 0f
+                                    }
+                                    translationY = when {
+                                        applyZoom -> panY
+                                        kenBurnsOn -> kbTy.value * viewportSize.height
+                                        else -> 0f
+                                    }
+                                },
                             contentScale = when (settings.fitMode) {
                                 FitMode.Fit -> ContentScale.Fit
                                 FitMode.Fill -> ContentScale.Crop
@@ -444,219 +434,5 @@ fun SlideshowScreen(
                 }
             }
         }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun Centered(msg: String, color: Color) {
-    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(msg, color = color, fontSize = 20.sp)
-    }
-}
-
-private fun transitionFor(t: Transition): ContentTransform = when (t) {
-    Transition.None -> fadeIn(tween(0)) togetherWith fadeOut(tween(0))
-    Transition.Crossfade -> fadeIn(tween(600)) togetherWith fadeOut(tween(600))
-    Transition.Slide -> (slideInHorizontally(tween(500)) { it } + fadeIn(tween(500))) togetherWith
-        (slideOutHorizontally(tween(500)) { -it } + fadeOut(tween(500)))
-    Transition.KenBurns -> fadeIn(tween(900)) togetherWith fadeOut(tween(900))
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun Controls(
-    settings: ImmichSettings,
-    firstChipFocusRequester: FocusRequester,
-    onInteraction: () -> Unit,
-    onChangeInterval: (Long) -> Unit,
-    onChangeTransition: (Transition) -> Unit,
-    onChangeSortOrder: (SortOrder) -> Unit,
-    onToggleShuffle: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val intervals = listOf(3_000L, 5_000L, 10_000L, 30_000L, 60_000L)
-    Column(
-        modifier
-            .fillMaxWidth()
-            .background(Color(0xCC000000))
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Speed:", color = Color(0xFFAAAAAA), fontSize = 14.sp)
-            Spacer(Modifier.width(8.dp))
-            intervals.forEachIndexed { i, ms ->
-                Chip(
-                    label = "${ms / 1000}s",
-                    selected = settings.slideshowIntervalMs == ms,
-                    onFocused = onInteraction,
-                    onClick = { onChangeInterval(ms) },
-                    modifier = if (i == 0) Modifier.focusRequester(firstChipFocusRequester) else Modifier,
-                )
-            }
-            Spacer(Modifier.width(24.dp))
-            Text("Transition:", color = Color(0xFFAAAAAA), fontSize = 14.sp)
-            Spacer(Modifier.width(8.dp))
-            Transition.entries.forEach { t ->
-                Chip(
-                    label = t.name,
-                    selected = settings.transition == t,
-                    onFocused = onInteraction,
-                    onClick = { onChangeTransition(t) },
-                )
-            }
-        }
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text("Order:", color = Color(0xFFAAAAAA), fontSize = 14.sp)
-            Spacer(Modifier.width(8.dp))
-            Chip(
-                label = "Newest first",
-                selected = settings.sortOrder == SortOrder.NewestFirst,
-                onFocused = onInteraction,
-                onClick = { onChangeSortOrder(SortOrder.NewestFirst) },
-            )
-            Chip(
-                label = "Oldest first",
-                selected = settings.sortOrder == SortOrder.OldestFirst,
-                onFocused = onInteraction,
-                onClick = { onChangeSortOrder(SortOrder.OldestFirst) },
-            )
-            Spacer(Modifier.width(24.dp))
-            ToggleChip(
-                label = "Shuffle",
-                on = settings.shuffle,
-                onFocused = onInteraction,
-                onToggle = onToggleShuffle,
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun Chip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    onFocused: () -> Unit = {},
-    modifier: Modifier = Modifier,
-) {
-    var focused by remember { mutableStateOf(false) }
-    Box(
-        modifier
-            .padding(horizontal = 4.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(
-                when {
-                    focused -> Color(0xFFFF6600)
-                    selected -> Color(0xFF444444)
-                    else -> Color(0xFF222222)
-                }
-            )
-            .onFocusChanged {
-                focused = it.isFocused
-                if (it.isFocused) onFocused()
-            }
-            .focusable()
-            .onKeyEvent {
-                if (it.type == KeyEventType.KeyUp && (it.key == Key.DirectionCenter || it.key == Key.Enter)) {
-                    onClick(); true
-                } else false
-            }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-    ) { Text(label, color = Color.White, fontSize = 13.sp) }
-}
-
-/** Overlay toggle chip: shows a check mark that makes on/off state obvious even next to
- * exclusive-select chips in the same row. */
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun ToggleChip(
-    label: String,
-    on: Boolean,
-    onToggle: () -> Unit,
-    onFocused: () -> Unit = {},
-    modifier: Modifier = Modifier,
-) {
-    var focused by remember { mutableStateOf(false) }
-    Box(
-        modifier
-            .padding(horizontal = 4.dp)
-            .clip(RoundedCornerShape(16.dp))
-            .background(
-                when {
-                    focused -> Color(0xFFFF6600)
-                    on -> Color(0xFF2E7D32)
-                    else -> Color(0xFF222222)
-                }
-            )
-            .onFocusChanged {
-                focused = it.isFocused
-                if (it.isFocused) onFocused()
-            }
-            .focusable()
-            .onKeyEvent {
-                if (it.type == KeyEventType.KeyUp && (it.key == Key.DirectionCenter || it.key == Key.Enter)) {
-                    onToggle(); true
-                } else false
-            }
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-    ) {
-        Text(
-            (if (on) "☑ " else "☐ ") + label,
-            color = Color.White,
-            fontSize = 13.sp,
-            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-        )
-    }
-}
-
-@OptIn(ExperimentalTvMaterial3Api::class)
-@Composable
-private fun AssetMetaOverlay(asset: Asset, modifier: Modifier = Modifier) {
-    val dateText = formatAssetDate(asset)
-    val locality = listOfNotNull(
-        asset.exifInfo?.city,
-        asset.exifInfo?.state,
-        asset.exifInfo?.country,
-    ).joinToString(", ").takeIf { it.isNotBlank() }
-    val rating = asset.exifInfo?.rating?.takeIf { it in 1..5 }
-
-    if (dateText == null && locality == null && rating == null) return
-
-    Column(
-        modifier.background(Color(0x99000000)).padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalAlignment = Alignment.End,
-    ) {
-        dateText?.let { Text(it, color = Color.White, fontSize = 14.sp) }
-        locality?.let { Text(it, color = Color(0xFFCCCCCC), fontSize = 13.sp) }
-        rating?.let {
-            Text("★".repeat(it) + "☆".repeat(5 - it), color = Color(0xFFFFC107), fontSize = 14.sp)
-        }
-    }
-}
-
-private fun formatAssetDate(asset: Asset): String? {
-    val raw = asset.exifInfo?.dateTimeOriginal
-        ?: asset.localDateTime
-        ?: asset.fileCreatedAt
-        ?: return null
-    return runCatching {
-        val odt = java.time.OffsetDateTime.parse(raw)
-        odt.format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy"))
-    }.getOrElse {
-        runCatching {
-            java.time.LocalDateTime.parse(raw.removeSuffix("Z"))
-                .format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy"))
-        }.getOrNull() ?: raw.take(10)
     }
 }

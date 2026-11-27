@@ -4,8 +4,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,15 +13,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -36,32 +35,35 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
 import com.intec.immichfire.BuildConfig
+import com.intec.immichfire.core.Constants
+import com.intec.immichfire.core.appContainer
 import com.intec.immichfire.data.FitMode
-import com.intec.immichfire.data.ImmichSettings
-import com.intec.immichfire.data.SettingsRepository
 import com.intec.immichfire.data.SortOrder
 import com.intec.immichfire.data.Transition
 import com.intec.immichfire.ui.theme.ImmichChip
 import com.intec.immichfire.ui.theme.ImmichColors
 import com.intec.immichfire.ui.theme.ImmichSectionCard
 import com.intec.immichfire.ui.theme.ImmichToggle
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    repo: SettingsRepository,
     onBack: () -> Unit,
     onReconfigureServer: () -> Unit = {},
 ) {
-    val settings by repo.settings.collectAsState(initial = ImmichSettings())
-    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    val vm: SettingsViewModel = viewModel(
+        factory = SettingsViewModel.Factory(context.appContainer.settingsRepository),
+    )
+    val settings by vm.settings.collectAsState()
     val scrollState = rememberScrollState()
     val backFocus = remember { FocusRequester() }
 
@@ -118,10 +120,10 @@ fun SettingsScreen(
                 subtitle = "How long each photo stays on screen.",
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(3_000L, 5_000L, 10_000L, 30_000L, 60_000L, 300_000L).forEach { ms ->
+                    Constants.Slideshow.INTERVAL_MS_CHOICES.forEach { ms ->
                         val label = if (ms >= 60_000) "${ms / 60_000}m" else "${ms / 1000}s"
                         ImmichChip(label, settings.slideshowIntervalMs == ms) {
-                            scope.launch { repo.update { it.copy(slideshowIntervalMs = ms) } }
+                            vm.update { it.copy(slideshowIntervalMs = ms) }
                         }
                     }
                 }
@@ -134,7 +136,7 @@ fun SettingsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Transition.entries.forEach { t ->
                         ImmichChip(t.name, settings.transition == t) {
-                            scope.launch { repo.update { it.copy(transition = t) } }
+                            vm.update { it.copy(transition = t) }
                         }
                     }
                 }
@@ -147,7 +149,7 @@ fun SettingsScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FitMode.entries.forEach { f ->
                         ImmichChip(f.name, settings.fitMode == f) {
-                            scope.launch { repo.update { it.copy(fitMode = f) } }
+                            vm.update { it.copy(fitMode = f) }
                         }
                     }
                 }
@@ -159,10 +161,10 @@ fun SettingsScreen(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ImmichChip("Newest first", settings.sortOrder == SortOrder.NewestFirst) {
-                        scope.launch { repo.update { it.copy(sortOrder = SortOrder.NewestFirst) } }
+                        vm.update { it.copy(sortOrder = SortOrder.NewestFirst) }
                     }
                     ImmichChip("Oldest first", settings.sortOrder == SortOrder.OldestFirst) {
-                        scope.launch { repo.update { it.copy(sortOrder = SortOrder.OldestFirst) } }
+                        vm.update { it.copy(sortOrder = SortOrder.OldestFirst) }
                     }
                 }
             }
@@ -176,23 +178,21 @@ fun SettingsScreen(
                         label = "Shuffle",
                         description = "Play photos in a random order",
                         on = settings.shuffle,
-                        onToggle = { scope.launch { repo.update { it.copy(shuffle = !it.shuffle) } } },
+                        onToggle = { vm.update { it.copy(shuffle = !it.shuffle) } },
                     )
                     ToggleRow(
                         label = "Loop",
                         description = "Restart from the beginning when the end is reached",
                         on = settings.loop,
-                        onToggle = { scope.launch { repo.update { it.copy(loop = !it.loop) } } },
+                        onToggle = { vm.update { it.copy(loop = !it.loop) } },
                     )
                 }
             }
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 SecondaryButton("Reconfigure server (URL + API key)") {
-                    scope.launch {
-                        repo.saveServer("", "")
-                        onReconfigureServer()
-                    }
+                    vm.clearServer()
+                    onReconfigureServer()
                 }
             }
 

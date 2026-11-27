@@ -1,6 +1,7 @@
 package com.intec.immichfire.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -24,39 +25,23 @@ class SettingsRepository(private val context: Context) {
         val SORT_ORDER = stringPreferencesKey("sort_order")
     }
 
-    val settings: Flow<ImmichSettings> = context.dataStore.data.map { p ->
-        ImmichSettings(
-            serverUrl = p[Keys.SERVER_URL].orEmpty(),
-            apiKey = p[Keys.API_KEY].orEmpty(),
-            slideshowIntervalMs = p[Keys.INTERVAL_MS] ?: 5_000L,
-            transition = runCatching { Transition.valueOf(p[Keys.TRANSITION] ?: Transition.Crossfade.name) }.getOrDefault(Transition.Crossfade),
-            shuffle = p[Keys.SHUFFLE] ?: false,
-            loop = p[Keys.LOOP] ?: true,
-            fitMode = runCatching { FitMode.valueOf(p[Keys.FIT] ?: FitMode.Fit.name) }.getOrDefault(FitMode.Fit),
-            sortOrder = runCatching { SortOrder.valueOf(p[Keys.SORT_ORDER] ?: SortOrder.NewestFirst.name) }.getOrDefault(SortOrder.NewestFirst),
-        )
-    }
+    val settings: Flow<ImmichSettings> = context.dataStore.data.map { it.toSettings() }
 
     suspend fun saveServer(url: String, apiKey: String) {
         context.dataStore.edit {
-            it[Keys.SERVER_URL] = url.trimEnd('/')
+            // Prepend a scheme if the user typed a bare host:port (e.g. "192.168.0.100:2283"),
+            // otherwise Retrofit throws when constructing the client.
+            val normalized = url.trim().let { raw ->
+                if (raw.isBlank() || raw.contains("://")) raw else "http://$raw"
+            }
+            it[Keys.SERVER_URL] = normalized.trimEnd('/')
             it[Keys.API_KEY] = apiKey.trim()
         }
     }
 
     suspend fun update(block: (ImmichSettings) -> ImmichSettings) {
         context.dataStore.edit { p ->
-            val current = ImmichSettings(
-                serverUrl = p[Keys.SERVER_URL].orEmpty(),
-                apiKey = p[Keys.API_KEY].orEmpty(),
-                slideshowIntervalMs = p[Keys.INTERVAL_MS] ?: 5_000L,
-                transition = runCatching { Transition.valueOf(p[Keys.TRANSITION] ?: Transition.Crossfade.name) }.getOrDefault(Transition.Crossfade),
-                shuffle = p[Keys.SHUFFLE] ?: false,
-                loop = p[Keys.LOOP] ?: true,
-                fitMode = runCatching { FitMode.valueOf(p[Keys.FIT] ?: FitMode.Fit.name) }.getOrDefault(FitMode.Fit),
-                sortOrder = runCatching { SortOrder.valueOf(p[Keys.SORT_ORDER] ?: SortOrder.NewestFirst.name) }.getOrDefault(SortOrder.NewestFirst),
-            )
-            val next = block(current)
+            val next = block(p.toSettings())
             p[Keys.SERVER_URL] = next.serverUrl
             p[Keys.API_KEY] = next.apiKey
             p[Keys.INTERVAL_MS] = next.slideshowIntervalMs
@@ -67,4 +52,18 @@ class SettingsRepository(private val context: Context) {
             p[Keys.SORT_ORDER] = next.sortOrder.name
         }
     }
+
+    private fun Preferences.toSettings() = ImmichSettings(
+        serverUrl = this[Keys.SERVER_URL].orEmpty(),
+        apiKey = this[Keys.API_KEY].orEmpty(),
+        slideshowIntervalMs = this[Keys.INTERVAL_MS] ?: 5_000L,
+        transition = parseEnum(this[Keys.TRANSITION], Transition.Crossfade),
+        shuffle = this[Keys.SHUFFLE] ?: false,
+        loop = this[Keys.LOOP] ?: true,
+        fitMode = parseEnum(this[Keys.FIT], FitMode.Fit),
+        sortOrder = parseEnum(this[Keys.SORT_ORDER], SortOrder.NewestFirst),
+    )
+
+    private inline fun <reified E : Enum<E>> parseEnum(raw: String?, default: E): E =
+        runCatching { enumValueOf<E>(raw ?: default.name) }.getOrDefault(default)
 }
