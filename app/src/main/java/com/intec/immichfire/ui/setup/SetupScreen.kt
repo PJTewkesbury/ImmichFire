@@ -45,6 +45,12 @@ import com.intec.immichfire.util.QrCode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+private sealed class LocalIpState {
+    data object Resolving : LocalIpState()
+    data object NoNetwork : LocalIpState()
+    data class Ready(val ip: String) : LocalIpState()
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun SetupScreen(
@@ -56,11 +62,25 @@ fun SetupScreen(
         factory = SetupViewModel.Factory(container.immichRepository, container.settingsRepository),
     )
     val appContext = remember { context.applicationContext }
-    val localIp = remember { NetworkUtils.localIpv4() }
-    val url = remember(localIp) { localIp?.let { "http://$it:${Constants.Network.SETUP_SERVER_PORT}" } }
+    // Resolve the local IPv4 off the main thread — NetworkInterface enumeration is a
+    // syscall-ish walk we don't want running during the first compose.
+    var localIpState by remember { mutableStateOf<LocalIpState>(LocalIpState.Resolving) }
+    LaunchedEffect(Unit) {
+        val ip = withContext(Dispatchers.IO) { NetworkUtils.localIpv4() }
+        localIpState = if (ip != null) LocalIpState.Ready(ip) else LocalIpState.NoNetwork
+    }
+    val url = (localIpState as? LocalIpState.Ready)
+        ?.let { "http://${it.ip}:${Constants.Network.SETUP_SERVER_PORT}" }
     var server by remember { mutableStateOf<ConfigServer?>(null) }
     var done by remember { mutableStateOf(false) }
     var lastMessage by remember { mutableStateOf<String?>(null) }
+
+    // Until we know the IP, show a minimal background rather than flashing the no-Wi-Fi
+    // state at users whose Wi-Fi resolve just hasn't landed yet.
+    if (localIpState is LocalIpState.Resolving) {
+        Box(Modifier.fillMaxSize().background(ImmichColors.Background))
+        return
+    }
 
     // No Wi-Fi / no local IP → QR URL would be nonsense; tell the user instead.
     if (url == null) {

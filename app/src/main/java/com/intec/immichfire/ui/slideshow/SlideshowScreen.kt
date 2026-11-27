@@ -45,11 +45,14 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import android.graphics.Bitmap
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.network.NetworkHeaders
 import coil3.network.httpHeaders
 import coil3.request.ImageRequest
+import coil3.request.bitmapConfig
+import coil3.size.Size
 import com.intec.immichfire.core.Constants
 import com.intec.immichfire.core.appContainer
 import com.intec.immichfire.data.FitMode
@@ -105,7 +108,8 @@ fun SlideshowScreen(
     }
 
     // Prefetch the next few images into Coil's memory/disk cache so the next
-    // transition doesn't start with a blank frame while the network loads.
+    // transition doesn't start with a blank frame while the network loads. Matches the
+    // live slideshow's bitmap config so the prefetched decode hits the memory cache.
     LaunchedEffect(state.index, state.assets.size, settings.serverUrl, settings.apiKey) {
         if (state.assets.isEmpty()) return@LaunchedEffect
         val loader = SingletonImageLoader.get(context)
@@ -118,6 +122,7 @@ fun SlideshowScreen(
                 ImageRequest.Builder(context)
                     .data(u)
                     .httpHeaders(headers)
+                    .bitmapConfig(Bitmap.Config.RGB_565)
                     .build()
             )
         }
@@ -266,18 +271,34 @@ fun SlideshowScreen(
             state.assets.isEmpty() -> Centered("No images found.", Color.White)
             else -> {
                 val asset = state.assets[state.index]
+                // Remember the ContentTransform so AnimatedContent's transitionSpec lambda
+                // doesn't rebuild a fresh tween/fadeIn/slideIn spec on each recomposition.
+                val cachedTransform = remember(settings.transition) { transitionFor(settings.transition) }
                 AnimatedContent(
                     targetState = state.index,
-                    transitionSpec = { transitionFor(settings.transition) },
+                    transitionSpec = { cachedTransform },
                     label = "slideshow",
                     modifier = Modifier.fillMaxSize(),
                 ) { i ->
                     val a = state.assets.getOrNull(i) ?: return@AnimatedContent
                     val u = ImmichClient.thumbnailUrl(settings.serverUrl, a.id, size = "preview")
+                    // Foreground: RGB_565 halves the per-slide bitmap cost vs ARGB_8888
+                    // (~4 MB → ~2 MB at 1920×1080). The photo variety more than hides the loss.
                     val req = remember(u, settings.apiKey) {
                         ImageRequest.Builder(context)
                             .data(u)
                             .httpHeaders(NetworkHeaders.Builder().set("x-api-key", settings.apiKey).build())
+                            .bitmapConfig(Bitmap.Config.RGB_565)
+                            .build()
+                    }
+                    // Backdrop: much smaller request (blurred to oblivion anyway) at 480px max
+                    // dimension, also RGB_565. Halves decode cost and GPU upload for the blur pass.
+                    val backdropReq = remember(u, settings.apiKey) {
+                        ImageRequest.Builder(context)
+                            .data(u)
+                            .httpHeaders(NetworkHeaders.Builder().set("x-api-key", settings.apiKey).build())
+                            .bitmapConfig(Bitmap.Config.RGB_565)
+                            .size(Size(480, 480))
                             .build()
                     }
 
@@ -317,11 +338,13 @@ fun SlideshowScreen(
                     Box(Modifier.fillMaxSize()) {
                         if (useBlurBackdrop) {
                             AsyncImage(
-                                model = req,
+                                model = backdropReq,
                                 contentDescription = null,
                                 modifier = Modifier
                                     .fillMaxSize()
-                                    .blur(40.dp)
+                                    // 20dp is visually indistinguishable from 40dp at TV
+                                    // viewing distance and halves the GPU blur cost.
+                                    .blur(20.dp)
                                     .graphicsLayer(scaleX = 1.1f, scaleY = 1.1f),
                                 contentScale = ContentScale.Crop,
                             )

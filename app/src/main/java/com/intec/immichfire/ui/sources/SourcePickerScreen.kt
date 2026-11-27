@@ -14,10 +14,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -103,93 +104,92 @@ fun SourcePickerScreen(
             .background(ImmichColors.Background)
             .padding(horizontal = 36.dp, vertical = 20.dp),
     ) {
-        Column(
-            modifier = Modifier.verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                ImmichLogo()
-                Spacer(Modifier.width(16.dp))
-                Text(
-                    settings.serverUrl,
-                    color = ImmichColors.OnSurfaceSecondary,
-                    fontSize = 13.sp,
-                )
-                Spacer(Modifier.width(1.dp).weight(1f))
-                HeaderPill("Settings", onClick = onOpenSettings)
+        // Single outer LazyColumn virtualises the album/folder rows, so hundreds of albums
+        // don't force every row to compose and measure before paint. Each ROW is its own
+        // item; section headers sit above their rows as additional items. Focus traversal
+        // works because LazyColumn supports bringIntoView natively.
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item(key = "header") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ImmichLogo()
+                    Spacer(Modifier.width(16.dp))
+                    Text(
+                        settings.serverUrl,
+                        color = ImmichColors.OnSurfaceSecondary,
+                        fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.width(1.dp).weight(1f))
+                    HeaderPill("Settings", onClick = onOpenSettings)
+                }
             }
 
-            state.error?.let {
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Color(0xFFFFEAEA))
-                        .border(1.dp, Color(0xFFF2B5B5), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
+            state.error?.let { err ->
+                item(key = "error") {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFFFFEAEA))
+                            .border(1.dp, Color(0xFFF2B5B5), RoundedCornerShape(10.dp))
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text("Error: ${err.displayMessage}", color = ImmichColors.Error, fontSize = 13.sp)
+                    }
+                }
+            }
+
+            item(key = "recent") {
+                ImmichSectionCard(
+                    title = "Most recent",
+                    subtitle = "Play a slideshow of your newest photos",
                 ) {
-                    Text("Error: ${it.displayMessage}", color = ImmichColors.Error, fontSize = 13.sp)
+                    ImmichRowButton(
+                        label = "Play slideshow of most recent photos",
+                        modifier = Modifier.focusRequester(focusRecent),
+                        onClick = { onStartSlideshow("recent", "") },
+                    )
                 }
             }
 
-            ImmichSectionCard(
-                title = "Most recent",
-                subtitle = "Play a slideshow of your newest photos",
-            ) {
+            item(key = "albums-header") {
+                SectionHeader(
+                    title = "Albums",
+                    subtitle = "Collections of assets that can be shared with other users.",
+                    empty = state.albums.isEmpty(),
+                    emptyText = "No albums found.",
+                )
+            }
+            items(state.albums, key = { "album-" + it.id }) { a ->
                 ImmichRowButton(
-                    label = "Play slideshow of most recent photos",
-                    modifier = Modifier.focusRequester(focusRecent),
-                    onClick = { onStartSlideshow("recent", "") },
+                    label = a.name,
+                    trailing = "${a.assetCount}",
+                    onClick = { onStartSlideshow("album", a.id) },
                 )
             }
 
-            ImmichSectionCard(
-                title = "Albums",
-                subtitle = "Collections of assets that can be shared with other users.",
-            ) {
-                if (state.albums.isEmpty()) {
-                    Text(
-                        "No albums found.",
-                        color = ImmichColors.OnSurfaceSecondary,
-                        fontSize = 12.sp,
-                    )
-                } else {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        state.albums.forEach { a ->
-                            ImmichRowButton(
-                                label = a.name,
-                                trailing = "${a.assetCount}",
-                                onClick = { onStartSlideshow("album", a.id) },
-                            )
-                        }
-                    }
-                }
+            item(key = "folders-header") {
+                SectionHeader(
+                    title = "Folders",
+                    subtitle = "Browsing the folder view for the photos and videos on the file system",
+                    empty = state.folders.isEmpty(),
+                    emptyText = "No folders.",
+                )
             }
+            items(state.folders, key = { "folder-$it" }) { f ->
+                ImmichRowButton(label = f, onClick = { onStartSlideshow("folder", f) })
+            }
+        }
+    }
+}
 
-            ImmichSectionCard(
-                title = "Folders",
-                subtitle = "Browsing the folder view for the photos and videos on the file system",
-            ) {
-                if (state.folders.isEmpty()) {
-                    Text(
-                        "No folders.",
-                        color = ImmichColors.OnSurfaceSecondary,
-                        fontSize = 12.sp,
-                    )
-                } else {
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        state.folders.forEach { f ->
-                            ImmichRowButton(label = f, onClick = { onStartSlideshow("folder", f) })
-                        }
-                    }
-                }
-            }
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun SectionHeader(title: String, subtitle: String, empty: Boolean, emptyText: String) {
+    ImmichSectionCard(title = title, subtitle = subtitle) {
+        if (empty) {
+            Text(emptyText, color = ImmichColors.OnSurfaceSecondary, fontSize = 12.sp)
+        } else {
+            Spacer(Modifier.size(0.dp))
         }
     }
 }
