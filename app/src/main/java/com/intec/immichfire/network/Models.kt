@@ -96,9 +96,20 @@ data class LoginResponse(
 @Serializable
 data class CreateApiKeyRequest(
     val name: String,
-    // Required by Immich 1.106+ — "all" matches the default when a user creates a key by
-    // hand in the Immich account screen, so an auto-provisioned key behaves identically.
-    val permissions: List<String> = listOf("all"),
+    // Minimum scopes the app actually uses — no admin, no asset upload/delete/share/download,
+    // no partner/person/tag/stack/system access, so a leaked key can't do more than ImmichFire
+    // itself can do.
+    //   album.read    — GET /api/albums (+ /api/albums/{id})
+    //   asset.read    — POST /api/search/metadata, GET /api/view/folder[/unique-paths]
+    //   asset.view    — GET /api/assets/{id}/thumbnail + /original (Coil image loads)
+    //   library.read  — GET /api/libraries (strip external-library prefix from folder paths)
+    // `/api/server/ping` is public, so no permission entry is needed for it.
+    val permissions: List<String> = listOf(
+        "album.read",
+        "asset.read",
+        "asset.view",
+        "library.read",
+    ),
 )
 
 @Serializable
