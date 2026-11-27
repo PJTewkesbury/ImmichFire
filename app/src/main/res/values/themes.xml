@@ -6,4 +6,17 @@
       leanback support library just for a theme (all TV UI is Compose + androidx.tv.material3).
     -->
     <style name="Theme.ImmichFire" parent="android:Theme.DeviceDefault.NoActionBar.Fullscreen" />
+
+    <!--
+      Cold-start splash. The AndroidX core-splashscreen library renders this theme from the
+      very first frame of the Activity, so there is no flash of system chrome before Compose
+      mounts. The Immich flower mark sits centered on the cream background; after onCreate()
+      runs and the keep-condition releases, the splash crossfades into the Compose UI (whose
+      root also paints the same cream background, so the handoff is seamless).
+    -->
+    <style name="Theme.ImmichFire.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/immich_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_immich_mark</item>
+        <item name="postSplashScreenTheme">@style/Theme.ImmichFire</item>
+    </style>
 </resources>

@@ -10,6 +10,7 @@ Fire TV / Android TV slideshow client for an Immich server, driven entirely by t
 - **Shuffle & loop**
 - **Fit modes:** Fit / Fill / Fill-with-backdrop
 - **Phone-based setup:** TV shows a QR code + pairing code → phone opens a form to enter URL & API key (no hunt-and-peck on the remote)
+- **Branded cold-start splash:** Immich flower mark on cream via the AndroidX core-splashscreen API, held on screen until the settings `StateFlow` has emitted its first value so the handoff to the first Compose frame has no empty-background flash
 - **Immich-styled UI:** cream background, Immich indigo (`#4250AF`) accents, card-based layout that mirrors the Immich web settings — brand-matched launcher banner and mipmap icon
 - **Fresh album list on every launch:** `SourcePickerViewModel.refresh()` re-queries Immich on every `ON_RESUME`, and filters out albums with zero assets or a blank name (filtering + sort live in the repository, not the composable)
 - **Newest-first albums:** album list is sorted by `createdAt` descending so the most recently created album is at the top
