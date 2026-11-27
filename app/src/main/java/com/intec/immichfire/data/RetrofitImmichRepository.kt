@@ -112,6 +112,10 @@ class RetrofitImmichRepository(
 
     override suspend fun listFolderPaths(): ApiResult<List<String>> = call { it.listFolderPaths() }
 
+    override suspend fun listLibraryImportPaths(): ApiResult<List<String>> = call { api ->
+        api.listLibraries().flatMap { it.importPaths }
+    }
+
     override suspend fun listFolderAssets(path: String): ApiResult<List<Asset>> = call { api ->
         api.listFolderAssets(path).filter { it.type.equals("IMAGE", ignoreCase = true) }
     }

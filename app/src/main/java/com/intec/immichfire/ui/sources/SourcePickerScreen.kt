@@ -175,8 +175,12 @@ fun SourcePickerScreen(
                     emptyText = "No folders.",
                 )
             }
-            items(state.folders, key = { "folder-$it" }) { f ->
-                ImmichRowButton(label = f, onClick = { onStartSlideshow("folder", f) })
+            items(state.folders, key = { "folder-" + it.path }) { f ->
+                ImmichRowButton(
+                    label = f.displayName,
+                    trailing = f.count?.toString(),
+                    onClick = { onStartSlideshow("folder", f.path) },
+                )
             }
         }
     }

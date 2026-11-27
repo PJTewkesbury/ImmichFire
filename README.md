@@ -4,7 +4,7 @@ Fire TV / Android TV slideshow client for an Immich server, driven entirely by t
 
 ## Features
 
-- **Source picker:** Most Recent / Albums / Folders
+- **Source picker:** Most Recent / Albums / Folders (folders show their photo count and are displayed with the external-library root path stripped, so `/mnt/usb/2026/Wedding` reads as `2026/Wedding`)
 - **Slideshow:** auto-advance with configurable interval, manual next/prev, play/pause
 - **Transitions:** None / Crossfade / Slide / Ken Burns
 - **Shuffle & loop**

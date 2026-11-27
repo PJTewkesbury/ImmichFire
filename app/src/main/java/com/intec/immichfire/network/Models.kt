@@ -72,3 +72,9 @@ data class ServerPing(val res: String = "")
 data class FoldersResponse(
     val folders: List<String> = emptyList(),
 )
+
+@Serializable
+data class Library(
+    val id: String,
+    @SerialName("importPaths") val importPaths: List<String> = emptyList(),
+)

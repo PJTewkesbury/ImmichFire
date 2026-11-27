@@ -24,4 +24,7 @@ interface ImmichApi {
 
     @GET("api/view/folder")
     suspend fun listFolderAssets(@Query("path") path: String): List<Asset>
+
+    @GET("api/libraries")
+    suspend fun listLibraries(): List<Library>
 }

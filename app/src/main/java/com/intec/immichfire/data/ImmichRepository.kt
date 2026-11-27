@@ -22,6 +22,9 @@ interface ImmichRepository {
     /** Immich folder-view unique paths. */
     suspend fun listFolderPaths(): ApiResult<List<String>>
 
+    /** All external-library import paths across configured libraries, for prefix stripping. */
+    suspend fun listLibraryImportPaths(): ApiResult<List<String>>
+
     /** Image assets in the given folder path. */
     suspend fun listFolderAssets(path: String): ApiResult<List<Asset>>
 
