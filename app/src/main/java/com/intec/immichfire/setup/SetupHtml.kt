@@ -183,11 +183,11 @@ internal object SetupHtml {
 
                 <label>Immich Server URL</label>
                 <div class="row">
-                  <input name="url" id="url" type="url" placeholder="http://192.168.0.100:2283" required>
+                  <input name="url" id="url" type="text" inputmode="url" autocapitalize="off" autocomplete="off" spellcheck="false" placeholder="https://immich.example.com   or   192.168.0.8:2283" required>
                   <button type="button" class="btn-secondary" onclick="scan()">Scan LAN</button>
                 </div>
                 <div id="found" class="found"></div>
-                <div class="hint">Scan uses mDNS (<code>_immich._tcp.local.</code>) and a /24 subnet probe in parallel.</div>
+                <div class="hint">Accepts <code>https://immich.example.com</code>, <code>http://192.168.0.8:2283</code>, or <code>http://travelpi.lan:2283</code>. <code>http://</code> is assumed when no scheme is given. Scan uses mDNS (<code>_immich._tcp.local.</code>) and a /24 subnet probe.</div>
 
                 <label style="margin-top:22px">Authentication</label>
                 <div class="tabs" role="tablist">
@@ -226,6 +226,19 @@ internal object SetupHtml {
             const paneApi=document.getElementById('pane-apikey');
             const saveBtn=document.getElementById('saveBtn');
             const testBtn=document.getElementById('testBtn');
+            const urlEl=document.getElementById('url');
+            // Make "immich.tewky.pw" and "192.168.0.8:2283" valid inputs by auto-prepending
+            // http://. Also strips trailing slash so the server can reason about a clean
+            // base URL. Already-schemed URLs pass through untouched.
+            function normalizeUrl(){
+              let v=(urlEl.value||'').trim();
+              if(!v) return;
+              if(!/^https?:\/\//i.test(v)) v='http://'+v;
+              v=v.replace(/\/+$/,'');
+              urlEl.value=v;
+            }
+            urlEl.addEventListener('blur',normalizeUrl);
+            document.getElementById('f').addEventListener('submit',normalizeUrl);
             function setMode(m){
               modeEl.value=m;
               const login=m==='login';
@@ -243,6 +256,7 @@ internal object SetupHtml {
               testBtn.classList.toggle('hidden',login);
             }
             async function test(){
+              normalizeUrl();
               const f=document.getElementById('f');
               const fd=new FormData(f);
               const s=document.getElementById('status');

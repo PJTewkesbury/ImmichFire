@@ -76,7 +76,7 @@ class ConfigServer(
         if (session.method != Method.POST) return notFound()
         val params = formParams(session)
         val code = params["code"].orEmpty()
-        val url = params["url"].orEmpty().trim()
+        val url = normalizeBaseUrl(params["url"].orEmpty())
         val modeRaw = params["mode"].orEmpty().lowercase()
         val mode = if (modeRaw == "apikey") AuthMode.API_KEY else AuthMode.LOGIN
         val request = ConfigRequest(
@@ -101,7 +101,7 @@ class ConfigServer(
 
     private fun handleTest(session: IHTTPSession): Response {
         val params = formParams(session)
-        val url = params["url"].orEmpty().trim()
+        val url = normalizeBaseUrl(params["url"].orEmpty())
         val key = params["apiKey"].orEmpty().trim()
         Log.i("ImmichFire", "Test ping requested url=$url keyLen=${key.length}")
         val result = runBlocking {
@@ -138,4 +138,24 @@ class ConfigServer(
 
     private fun escapeJson(s: String): String =
         s.replace("\\", "\\\\").replace("\"", "\\\"")
+
+    /**
+     * Accept the three URL shapes the setup form advertises:
+     *   https://immich.example.com     — scheme present, no port, FQDN
+     *   http://192.168.0.8:2283        — scheme present, IP + port
+     *   http://travelpi.lan:2283       — scheme present, hostname + port
+     * plus their scheme-less siblings (`immich.example.com`, `192.168.0.8:2283`) by
+     * auto-prepending `http://`. Trims trailing slashes so Retrofit's own `baseUrl` join
+     * doesn't produce `//api/...` paths.
+     */
+    private fun normalizeBaseUrl(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return trimmed
+        val withScheme = if (trimmed.matches(Regex("^https?://.*", RegexOption.IGNORE_CASE))) {
+            trimmed
+        } else {
+            "http://$trimmed"
+        }
+        return withScheme.trimEnd('/')
+    }
 }
