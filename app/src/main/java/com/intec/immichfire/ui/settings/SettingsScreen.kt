@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Text
+import com.intec.immichfire.BuildConfig
 import com.intec.immichfire.data.FitMode
 import com.intec.immichfire.data.ImmichSettings
 import com.intec.immichfire.data.SettingsRepository
@@ -186,6 +187,17 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            ImmichSectionCard(
+                title = "About",
+                subtitle = "App build information.",
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    LabelValue("Version", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                    LabelValue("Commit", BuildConfig.GIT_COMMIT)
+                }
+            }
+
             Spacer(Modifier.width(1.dp))
         }
     }

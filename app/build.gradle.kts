@@ -5,6 +5,11 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+val gitShortHash: String = providers.exec {
+    commandLine("git", "rev-parse", "--short", "HEAD")
+    isIgnoreExitValue = true
+}.standardOutput.asText.map { it.trim() }.orElse("unknown").get().ifBlank { "unknown" }
+
 android {
     namespace = "com.intec.immichfire"
     compileSdk = 35
@@ -15,6 +20,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "GIT_COMMIT", "\"$gitShortHash\"")
     }
 
     buildTypes {
@@ -32,11 +38,15 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
     packaging {
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
+    }
+    lint {
+        checkReleaseBuilds = false
     }
 }
 
