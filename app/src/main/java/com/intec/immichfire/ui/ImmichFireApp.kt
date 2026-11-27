@@ -17,9 +17,11 @@ import com.intec.immichfire.ui.settings.SettingsScreen
 import com.intec.immichfire.ui.setup.SetupScreen
 import com.intec.immichfire.ui.slideshow.SlideshowScreen
 import com.intec.immichfire.ui.sources.SourcePickerScreen
+import com.intec.immichfire.ui.splash.SplashScreen
 import com.intec.immichfire.ui.theme.ImmichColors
 
 object Routes {
+    const val Splash = "splash"
     const val Setup = "setup"
     const val Sources = "sources"
     const val Settings = "settings"
@@ -44,8 +46,21 @@ fun ImmichFireApp() {
 
     Box(modifier = Modifier.fillMaxSize().background(ImmichColors.Background)) {
         val nav = rememberNavController()
-        val startRoute = if (resolved.isConfigured) Routes.Sources else Routes.Setup
-        NavHost(navController = nav, startDestination = startRoute) {
+        // Splash is always the start destination so the branded holdscreen with version
+        // info is seen on cold start. It decides the post-splash destination itself using
+        // the latest observed settings, so a reconfigure that completes mid-hold still
+        // routes to the right place.
+        val postSplash = if (resolved.isConfigured) Routes.Sources else Routes.Setup
+        NavHost(navController = nav, startDestination = Routes.Splash) {
+            composable(Routes.Splash) {
+                SplashScreen(
+                    onDone = {
+                        nav.navigate(postSplash) {
+                            popUpTo(Routes.Splash) { inclusive = true }
+                        }
+                    },
+                )
+            }
             composable(Routes.Setup) {
                 SetupScreen(
                     onDone = {

@@ -1,3 +1,7 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.TimeZone
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -10,6 +14,12 @@ val gitShortHash: String = providers.exec {
     isIgnoreExitValue = true
 }.standardOutput.asText.map { it.trim() }.orElse("unknown").get().ifBlank { "unknown" }
 
+// UTC so builds from different timezones still produce a comparable string. Read once at
+// configuration time so the APK bakes in the actual build moment, not the run moment.
+val buildDate: String = SimpleDateFormat("yyyy-MM-dd").apply {
+    timeZone = TimeZone.getTimeZone("UTC")
+}.format(Date())
+
 android {
     namespace = "com.intec.immichfire"
     compileSdk = 35
@@ -21,6 +31,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "GIT_COMMIT", "\"$gitShortHash\"")
+        buildConfigField("String", "BUILD_DATE", "\"$buildDate\"")
     }
 
     buildTypes {
