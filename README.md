@@ -43,7 +43,7 @@ Fire TV / Android TV slideshow client for an Immich server, driven entirely by t
 1. Install the APK on the Fire TV (sideload or ADB).
 2. Open the app. It shows a QR code and a 6-digit pairing code.
 3. On a phone on the same Wi-Fi, scan the QR (or type the URL shown).
-4. Enter your Immich server URL (e.g. `https://immich.example.com`, `http://192.168.0.100:2283`, or `http://travelpi.lan:2283` — `http://` is assumed if you omit the scheme) and the pairing code, then on the **Sign in** tab enter your Immich email and password and press **Sign in & Save**. The TV mints a dedicated API key (scoped `album.read` / `asset.read` / `asset.view` / `library.read`) and stores it; your password is not kept. If you already have an API key you'd rather use, switch to the **API key** tab and paste it instead.
+4. Enter your Immich server URL (e.g. `https://immich.example.com`, `http://192.168.0.100:2283`, or `http://travelpi.lan:2283` — `http://` is assumed if you omit the scheme) and the pairing code, then on the **Sign in** tab enter your Immich email and password and press **Sign in & Save**. The TV mints a dedicated API key (scoped `album.read` / `asset.read` / `asset.view` / `folder.read` / `library.read`) and stores it; your password is not kept. If you already have an API key you'd rather use, switch to the **API key** tab and paste it instead.
 5. The TV auto-advances to the source picker.
 
 ## Building

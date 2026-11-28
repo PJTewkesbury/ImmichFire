@@ -100,14 +100,18 @@ data class CreateApiKeyRequest(
     // no partner/person/tag/stack/system access, so a leaked key can't do more than ImmichFire
     // itself can do.
     //   album.read    — GET /api/albums (+ /api/albums/{id})
-    //   asset.read    — POST /api/search/metadata, GET /api/view/folder[/unique-paths]
+    //   asset.read    — POST /api/search/metadata
     //   asset.view    — GET /api/assets/{id}/thumbnail + /original (Coil image loads)
-    //   library.read  — GET /api/libraries (strip external-library prefix from folder paths)
+    //   folder.read   — GET /api/view/folder[/unique-paths] (Folders section)
+    //   library.read  — GET /api/libraries (strip external-library prefix from folder paths;
+    //                   admin-only on the server, so for non-admin users this is a no-op and
+    //                   the fallback in RetrofitImmichRepository just strips the leading slash)
     // `/api/server/ping` is public, so no permission entry is needed for it.
     val permissions: List<String> = listOf(
         "album.read",
         "asset.read",
         "asset.view",
+        "folder.read",
         "library.read",
     ),
 )
