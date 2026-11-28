@@ -252,19 +252,24 @@ internal object SetupHtml {
               document.getElementById('password').required=login;
               document.getElementById('apiKey').required=!login;
               saveBtn.textContent=login?'Sign in & Save':'Save';
-              // Test with no password would mint a throwaway key; only surface it for API-key mode.
-              testBtn.classList.toggle('hidden',login);
+              // Test is available in both modes — in login mode it verifies email/password
+              // without minting a key; in API-key mode it pings with the pasted key.
+              testBtn.classList.remove('hidden');
+              testBtn.textContent=login?'Test sign-in':'Test connection';
             }
             async function test(){
               normalizeUrl();
               const f=document.getElementById('f');
               const fd=new FormData(f);
               const s=document.getElementById('status');
-              s.textContent='Testing…';s.className='';
-              const r=await fetch('/test',{method:'POST',body:new URLSearchParams(fd)});
+              const login=modeEl.value==='login';
+              s.textContent=login?'Signing in…':'Testing…';s.className='';
+              const endpoint=login?'/testLogin':'/test';
+              const r=await fetch(endpoint,{method:'POST',body:new URLSearchParams(fd)});
               const t=await r.text();
               const ok=t==='OK';
-              s.textContent=ok?'Connected OK ✓':('✗ '+t);
+              const okMsg=login?'Sign-in OK ✓':'Connected OK ✓';
+              s.textContent=ok?okMsg:('✗ '+t);
               s.className=ok?'ok':'err';
             }
             async function scan(){

@@ -17,6 +17,13 @@ interface ImmichRepository {
     suspend fun ping(credentials: Credentials): ApiResult<Unit>
 
     /**
+     * Verify Immich email + password against [baseUrl] without minting an API key or
+     * persisting anything. Used by the setup form's "Test connection" button so the user
+     * can confirm their sign-in works before committing and having to re-pair.
+     */
+    suspend fun testLogin(baseUrl: String, email: String, password: String): ApiResult<Unit>
+
+    /**
      * Sign in with Immich email + password, then mint a new API key named [keyName] with
      * "all" permissions (matching what the Immich UI gives a user-created key by default).
      * Returns the raw key secret on success — callers typically ping with it and persist it

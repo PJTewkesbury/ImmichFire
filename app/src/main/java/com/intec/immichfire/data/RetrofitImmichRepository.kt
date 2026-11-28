@@ -104,6 +104,26 @@ class RetrofitImmichRepository(
             .create(ImmichApi::class.java)
     }
 
+    override suspend fun testLogin(
+        baseUrl: String,
+        email: String,
+        password: String,
+    ): ApiResult<Unit> {
+        if (baseUrl.isBlank() || email.isBlank() || password.isBlank()) {
+            return ApiResult.Failure(ImmichError.NotConfigured)
+        }
+        val api = noAuthApi(baseUrl)
+        return runCatching {
+            // Only the login call — no key mint — so nothing lingers on the server if the
+            // user is just checking their credentials before committing.
+            api.login(LoginRequest(email = email.trim(), password = password))
+            Unit
+        }.fold(
+            onSuccess = { ApiResult.Success(it) },
+            onFailure = { ApiResult.Failure(ImmichError.from(it)) },
+        )
+    }
+
     override suspend fun loginAndCreateApiKey(
         baseUrl: String,
         email: String,

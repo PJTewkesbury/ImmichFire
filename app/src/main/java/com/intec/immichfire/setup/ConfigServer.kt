@@ -42,6 +42,10 @@ class ConfigServer(
     private val pingServer: suspend (Credentials) -> ApiResult<Unit> = { cred ->
         appContext.appContainer.immichRepository.ping(cred)
     },
+    private val testLoginServer: suspend (String, String, String) -> ApiResult<Unit> =
+        { url, email, password ->
+            appContext.appContainer.immichRepository.testLogin(url, email, password)
+        },
     private val onSubmit: suspend (ConfigRequest) -> ConfigSubmission,
 ) : NanoHTTPD(port) {
 
@@ -53,6 +57,7 @@ class ConfigServer(
             "/" -> html(SetupHtml.indexPage())
             "/submit" -> handleSubmit(session)
             "/test" -> handleTest(session)
+            "/testLogin" -> handleTestLogin(session)
             "/discover" -> handleDiscover(session)
             else -> notFound()
         }
@@ -106,6 +111,29 @@ class ConfigServer(
         Log.i("ImmichFire", "Test ping requested url=$url keyLen=${key.length}")
         val result = runBlocking {
             withTimeoutOrNull(25_000) { pingServer(Credentials(url, key)) }
+        }
+        val message = when (result) {
+            null -> "FAIL: timed out"
+            is ApiResult.Success -> "OK"
+            is ApiResult.Failure -> "FAIL: ${result.error.displayMessage}"
+        }
+        return newFixedLengthResponse(Response.Status.OK, "text/plain", message)
+    }
+
+    /**
+     * Try an Immich email+password sign-in without minting an API key or persisting
+     * anything. Lets the phone-side form validate login before the user commits and burns
+     * the pairing code on a typo.
+     */
+    private fun handleTestLogin(session: IHTTPSession): Response {
+        val params = formParams(session)
+        val url = normalizeBaseUrl(params["url"].orEmpty())
+        val email = params["email"].orEmpty().trim()
+        // Password is NOT trimmed — Immich allows leading/trailing spaces in passwords.
+        val password = params["password"].orEmpty()
+        Log.i("ImmichFire", "Test login requested url=$url emailLen=${email.length}")
+        val result = runBlocking {
+            withTimeoutOrNull(25_000) { testLoginServer(url, email, password) }
         }
         val message = when (result) {
             null -> "FAIL: timed out"
