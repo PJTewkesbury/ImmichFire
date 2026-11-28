@@ -200,7 +200,7 @@ fun SetupScreen(
             Row(
                 Modifier.fillMaxSize(),
                 horizontalArrangement = Arrangement.spacedBy(48.dp),
-                verticalAlignment = Alignment.CenterVertically,
+                verticalAlignment = Alignment.Top,
             ) {
                 // QR card
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
