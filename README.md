@@ -9,7 +9,7 @@ Fire TV / Android TV slideshow client for an Immich server, driven entirely by t
 - **Transitions:** None / Crossfade / Slide / Ken Burns
 - **Shuffle & loop**
 - **Fit modes:** Fit / Fill / Fill-with-backdrop
-- **Phone-based setup:** TV shows a QR code + pairing code → phone opens an Immich-themed form; the default path is **Sign in with your Immich email + password** (an API key named `"ImmichFire (<device model> / <TV IP>)"` is minted via `/api/auth/login` → `/api/api-keys` with only the scopes the app actually uses — `album.read`, `asset.read`, `asset.view`, `library.read` — and stored on the TV; the password is never persisted). An "API key" tab is still available for people who already have a key. The URL field accepts all three usual Immich shapes — `https://immich.example.com`, `http://192.168.0.8:2283`, `http://travelpi.lan:2283` — and auto-prepends `http://` and strips trailing slashes both client- and server-side so a bare hostname still works. No hunt-and-peck on the remote
+- **Phone-based setup:** TV shows a QR code + pairing code → phone opens an Immich-themed form; the default path is **Sign in with your Immich email + password** (an API key named `"ImmichFire (<device model> / <TV IP>)"` is minted via `/api/auth/login` → `/api/api-keys` with only the scopes the app actually uses — `album.read`, `asset.read`, `asset.view`, `folder.read`, `library.read` — and stored on the TV; the password is never persisted). An "API key" tab is still available for people who already have a key. A **Test sign-in** / **Test connection** button (next to Save) validates credentials against the server without saving, so a typo in email / password / key doesn't force a new pairing code. The URL field accepts all three usual Immich shapes — `https://immich.example.com`, `http://192.168.0.8:2283`, `http://travelpi.lan:2283` — and auto-prepends `http://` and strips trailing slashes both client- and server-side so a bare hostname still works. No hunt-and-peck on the remote
 - **Branded cold-start splash:** Immich flower mark on cream via the AndroidX core-splashscreen API, held on screen until the settings `StateFlow` has emitted its first value so the handoff to the first Compose frame has no empty-background flash. The Compose splash that takes over for ~1.5 s shows version / build date / commit hash in the lower-right corner (all baked in from `BuildConfig` at build time — no runtime git shell-out)
 - **Immich-styled UI:** cream background, Immich indigo (`#4250AF`) accents, card-based layout that mirrors the Immich web settings — brand-matched launcher banner and mipmap icon
 - **Fresh album list on every launch:** `SourcePickerViewModel.refresh()` re-queries Immich on every `ON_RESUME`, and filters out albums with zero assets or a blank name (filtering + sort live in the repository, not the composable)
@@ -44,7 +44,8 @@ Fire TV / Android TV slideshow client for an Immich server, driven entirely by t
 2. Open the app. It shows a QR code and a 6-digit pairing code.
 3. On a phone on the same Wi-Fi, scan the QR (or type the URL shown).
 4. Enter your Immich server URL (e.g. `https://immich.example.com`, `http://192.168.0.100:2283`, or `http://travelpi.lan:2283` — `http://` is assumed if you omit the scheme) and the pairing code, then on the **Sign in** tab enter your Immich email and password and press **Sign in & Save**. The TV mints a dedicated API key (scoped `album.read` / `asset.read` / `asset.view` / `folder.read` / `library.read`) and stores it; your password is not kept. If you already have an API key you'd rather use, switch to the **API key** tab and paste it instead.
-5. The TV auto-advances to the source picker.
+5. Before committing, press **Test sign-in** (Sign in tab) or **Test connection** (API key tab) to verify the server + credentials without saving. A typo won't burn the pairing code — the form stays open so you can fix it.
+6. Once the test passes, press **Sign in & Save** / **Save**. The phone shows a confirmation page and the TV auto-advances to the source picker.
 
 ## Building
 
@@ -123,7 +124,8 @@ app/src/main/java/com/intec/immichfire/
     ImmichClient.kt                -- URL helpers only (thumbnailUrl, etc.)
     Models.kt                      -- Serializable DTOs
   setup/
-    ConfigServer.kt                -- NanoHTTPD routing: /submit /test /discover
+    ConfigServer.kt                -- NanoHTTPD routing: /submit /test
+                                      /testLogin /discover
     LanDiscovery.kt                -- mDNS + /24 subnet probe
     SetupHtml.kt                   -- Index + result page templates
   ui/
