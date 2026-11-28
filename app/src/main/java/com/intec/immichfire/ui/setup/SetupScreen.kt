@@ -44,6 +44,7 @@ import com.intec.immichfire.ui.theme.ImmichLogo
 import com.intec.immichfire.util.NetworkUtils
 import com.intec.immichfire.util.QrCode
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicReference
 
@@ -177,6 +178,11 @@ fun SetupScreen(
 
     LaunchedEffect(done) {
         if (done) {
+            // Give the /submit response a moment to flush over the LAN before the server
+            // socket closes — otherwise the phone's browser sees ERR_CONNECTION_REFUSED
+            // instead of the "Saved ✓" confirmation page, because NanoHTTPD's response
+            // write races with stop() on the main-thread LaunchedEffect.
+            delay(2_000)
             // Stop the embedded server the moment setup succeeds, not when the composable
             // happens to be disposed — otherwise the port keeps listening to other LAN hosts
             // during the handoff to the source picker.
